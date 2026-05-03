@@ -18,7 +18,7 @@ repost:
   enabled: true
   source_accounts:
     - softeningsayings            # Public IG accounts to scrape images from
-  max_posts_to_check: 20          # How many recent posts to scan per run
+  max_posts_to_check: 12          # How many recent posts to scan per run (keep low to avoid rate limits)
   include_reels: true            # Set true to also scrape & repost Reels (videos)
   download_dir: media/reposts     # Local download directory (cleaned up automatically)
   is_ramadan: false               # Set true during Ramadan to allow Ramadan content

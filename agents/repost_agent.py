@@ -147,6 +147,9 @@ class RepostAgent:
             save_metadata=False,
             post_metadata_txt_pattern="",
             quiet=True,
+            # ── Rate limiting: tell instaloader to sleep between requests ──────
+            sleep=True,              # enables built-in adaptive sleep
+            max_connection_attempts=3,
         )
 
         # Suppress instaloader's internal 403-retry print messages —
@@ -208,6 +211,7 @@ class RepostAgent:
         # Collect candidates (images and/or reels)
         image_candidates = []
         reel_candidates = []
+        scanned = 0
         try:
             for post in profile.get_posts():
                 if post.is_video:
@@ -215,8 +219,17 @@ class RepostAgent:
                         reel_candidates.append(post)
                 elif post.typename in ("GraphImage", "XDTGraphImage"):
                     image_candidates.append(post)
-                if len(image_candidates) + len(reel_candidates) >= max_check:
+
+                scanned += 1
+                if scanned >= max_check:
                     break
+
+                # Small politeness sleep between post metadata fetches
+                # Reduces risk of 401/403 rate-limit during scan
+                sleep_s = random.uniform(1.5, 3.5)
+                logger.debug(f"Sleeping {sleep_s:.1f}s between post fetches...")
+                time.sleep(sleep_s)
+
         except Exception as exc:
             logger.error(f"Error iterating posts from @{username}: {exc}")
 
