@@ -212,6 +212,13 @@ class RepostAgent:
         image_candidates = []
         reel_candidates = []
         scanned = 0
+
+        # Initial pause after profile load, before first post fetch
+        # (profile fetch itself is 1 API call — sleep before iterating posts)
+        initial_sleep = random.uniform(50, 70)
+        logger.debug(f"Initial sleep {initial_sleep:.1f}s before scanning posts...")
+        time.sleep(initial_sleep)
+
         try:
             for post in profile.get_posts():
                 if post.is_video:
@@ -224,9 +231,9 @@ class RepostAgent:
                 if scanned >= max_check:
                     break
 
-                # Small politeness sleep between post metadata fetches
-                # Reduces risk of 401/403 rate-limit during scan
-                sleep_s = random.uniform(1.5, 3.5)
+                # Politeness sleep between post metadata fetches (~1 min)
+                # Mimics human scrolling behaviour to avoid IG rate-limiting
+                sleep_s = random.uniform(50, 70)
                 logger.debug(f"Sleeping {sleep_s:.1f}s between post fetches...")
                 time.sleep(sleep_s)
 
