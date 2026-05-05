@@ -16,7 +16,7 @@ facebook:
 # with a rewritten caption. Triggered by GitHub Actions via: main.py --repost
 repost:
   enabled: true
-  auto_scrape_enabled: false      # Set true to scrape autonomously; false to rely solely on Google Sheets
+  auto_scrape_enabled: true       # Set true to scrape autonomously; false to rely solely on Google Sheets
   source_accounts:
     - softeningsayings            # Public IG accounts to scrape images from
   max_posts_to_check: 12          # How many recent posts to scan per run (keep low to avoid rate limits)

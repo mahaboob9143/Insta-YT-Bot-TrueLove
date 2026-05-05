@@ -58,7 +58,11 @@ class Orchestrator:
         # ── Step 1: Priority 2 (Google Sheets Fallback) ───────────────────────
         if not result:
             logger.warning("[Priority 1 Failed] Checking Google Sheets manual queue...")
-            row = get_pending_row()
+            from core.post_state import get_next_post_type
+            next_type = get_next_post_type()
+            logger.info(f"Target pattern: {next_type.upper()}")
+            
+            row = get_pending_row(preferred_type=next_type)
             if row:
                 url, cat = row
                 logger.info(f"[Priority 2] Attempting to process manual URL: {url}")

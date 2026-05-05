@@ -14,22 +14,24 @@ logger = get_logger("SheetsReader")
 # The public CSV export URL for the user's Google Sheet
 SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1UG-xzmeIt_0aCTrih4kCWYFY2fUFyPPYxJQE18Ext6w/export?format=csv"
 
-def get_pending_row() -> Optional[Tuple[str, str]]:
+def get_pending_row(preferred_type: str = "image") -> Optional[Tuple[str, str]]:
     """
     Downloads the public Google Sheet as a CSV.
     Iterates through rows.
-    Finds the first row where the URL is NOT in our reposted_ids.txt.
-    Returns (URL, Category).
+    Attempts to find an unprocessed URL that matches the preferred_type.
+    If no match is found for the preferred_type, returns the first unprocessed URL available.
     Returns None if the sheet is empty, unreachable, or all URLs are processed.
     """
     try:
-        logger.info("Fetching manual queue from Google Sheets...")
+        logger.info(f"Fetching manual queue from Google Sheets (looking for a {preferred_type.upper()})...")
         resp = requests.get(SHEET_CSV_URL, timeout=15)
         resp.raise_for_status()
         
         # Parse the CSV
         csv_text = resp.text
         reader = csv.DictReader(io.StringIO(csv_text))
+        
+        fallback_row = None
         
         for row in reader:
             url = row.get("URL", "").strip()
@@ -38,21 +40,29 @@ def get_pending_row() -> Optional[Tuple[str, str]]:
             if not url:
                 continue
             
-            # Extract shortcode from the URL to check the dedup tracker
-            # Example URLs: 
-            # https://www.instagram.com/reel/C-123456789/
-            # https://www.instagram.com/p/C-123456789/
+            # Extract shortcode from the URL
             parts = url.strip("/").split("/")
             if len(parts) >= 1:
                 shortcode = parts[-1]
-                # Sometimes URLs have query params: ?utm_source=ig_web_copy_link
                 shortcode = shortcode.split("?")[0]
                 
                 if not is_reposted(shortcode):
-                    logger.info(f"Found unprocessed manual URL: {url} (Category: {category or 'general'})")
-                    return (url, category)
+                    is_url_reel = "/reel/" in url.lower() or "/tv/" in url.lower()
+                    
+                    if (preferred_type == "reel" and is_url_reel) or (preferred_type != "reel" and not is_url_reel):
+                        logger.info(f"Found EXACT match for {preferred_type}: {url} (Category: {category or 'general'})")
+                        return (url, category)
+                    
+                    # Save the first non-matching unprocessed row as a fallback
+                    if not fallback_row:
+                        fallback_row = (url, category)
                 else:
                     logger.debug(f"Skipping {url} — already in reposted_ids.txt")
+
+        # If we couldn't find the preferred type, but found SOMETHING unprocessed, return it
+        if fallback_row:
+            logger.warning(f"Could not find a {preferred_type} in the sheet. Falling back to next available URL: {fallback_row[0]}")
+            return fallback_row
 
         logger.info("No unprocessed URLs found in Google Sheet.")
         return None

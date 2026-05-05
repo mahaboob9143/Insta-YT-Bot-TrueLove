@@ -149,7 +149,7 @@ class RepostAgent:
             post_metadata_txt_pattern="",
             quiet=True,
             # ── Rate limiting: tell instaloader to sleep between requests ──────
-            sleep=False,             # disable built-in adaptive sleep (prevents 30-minute hangs on 429)
+            sleep=True,              # enables built-in adaptive sleep
             max_connection_attempts=2,
         )
 
@@ -216,8 +216,8 @@ class RepostAgent:
         scanned = 0
 
         # Initial pause after profile load, before first post fetch
-        # Reduced for local testing
-        initial_sleep = random.uniform(2, 5)
+        # (profile fetch itself is 1 API call — sleep before iterating posts)
+        initial_sleep = random.uniform(50, 70)
         logger.debug(f"Initial sleep {initial_sleep:.1f}s before scanning posts...")
         time.sleep(initial_sleep)
 
@@ -233,9 +233,9 @@ class RepostAgent:
                 if scanned >= max_check:
                     break
 
-                # Politeness sleep between post metadata fetches
-                # Reduced for local testing
-                sleep_s = random.uniform(2, 5)
+                # Politeness sleep between post metadata fetches (~1 min)
+                # Mimics human scrolling behaviour to avoid IG rate-limiting
+                sleep_s = random.uniform(50, 70)
                 logger.debug(f"Sleeping {sleep_s:.1f}s between post fetches...")
                 time.sleep(sleep_s)
 
