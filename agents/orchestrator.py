@@ -42,9 +42,18 @@ class Orchestrator:
         logger.info("  REPOST NOW — scrape & publish pipeline (IG + Facebook)")
         logger.info("=" * 60)
 
+        from core.flags import get_config
+        config = get_config()
+        auto_scrape = config.get("repost", {}).get("auto_scrape_enabled", True)
+
+        result = None
+
         # ── Step 1: Priority 1 (Auto-Scrape) ──────────────────────────────────
-        logger.info("[Priority 1] RepostAgent: fetching unseen post from source account...")
-        result = self.repost_agent.run(force_duplicate=False)
+        if auto_scrape:
+            logger.info("[Priority 1] RepostAgent: fetching unseen post from source account...")
+            result = self.repost_agent.run(force_duplicate=False)
+        else:
+            logger.info("[Priority 1 Skipped] auto_scrape_enabled is False.")
 
         # ── Step 1: Priority 2 (Google Sheets Fallback) ───────────────────────
         if not result:
