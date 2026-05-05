@@ -255,6 +255,7 @@ def build_caption(
     original: str,
     add_credit: bool = True,
     credit_handle: str = "softeningsayings",
+    category_override: Optional[str] = None,
 ) -> str:
     """
     Full pipeline:
@@ -271,7 +272,11 @@ def build_caption(
       5. One CTA only (the pre-hook). No repeat at the bottom.
     """
     body = clean_caption(original)
-    category = classify_caption(body)
+    
+    if category_override and category_override in _KEYWORDS:
+        category = category_override
+    else:
+        category = classify_caption(body)
 
     pre_hook = random.choice(_PRE_HOOKS[category])
     hook = random.choice(_HOOKS[category])

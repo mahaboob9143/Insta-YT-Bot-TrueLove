@@ -9,6 +9,7 @@ from typing import Optional
 
 from agents.poster_agent import PosterAgent
 from agents.repost_agent import RepostAgent
+from core.sheets_reader import get_pending_row
 from core.logger import get_logger
 
 logger = get_logger("Orchestrator")
@@ -41,15 +42,28 @@ class Orchestrator:
         logger.info("  REPOST NOW — scrape & publish pipeline (IG + Facebook)")
         logger.info("=" * 60)
 
-        # ── Step 1: Scrape + prepare ───────────────────────────────────────
-        logger.info("RepostAgent: fetching post from source account...")
-        result = self.repost_agent.run()
+        # ── Step 1: Priority 1 (Auto-Scrape) ──────────────────────────────────
+        logger.info("[Priority 1] RepostAgent: fetching unseen post from source account...")
+        result = self.repost_agent.run(force_duplicate=False)
+
+        # ── Step 1: Priority 2 (Google Sheets Fallback) ───────────────────────
+        if not result:
+            logger.warning("[Priority 1 Failed] Checking Google Sheets manual queue...")
+            row = get_pending_row()
+            if row:
+                url, cat = row
+                logger.info(f"[Priority 2] Attempting to process manual URL: {url}")
+                result = self.repost_agent.process_specific_url(url, category=cat)
+
+        # ── Step 1: Priority 3 (Duplicate Safeguard) ──────────────────────────
+        if not result:
+            logger.warning("[Priority 2 Failed] Google Sheet empty. Forcing DUPLICATE post to maintain daily streak.")
+            result = self.repost_agent.run(force_duplicate=True)
 
         if not result:
             logger.error(
-                "RepostAgent returned nothing. "
-                "Check repost.enabled=true in config.yaml "
-                "and that source_accounts are valid."
+                "All 3 priority tiers failed. "
+                "Unable to fetch any content from Instagram today."
             )
             return
 

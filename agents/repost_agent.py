@@ -51,7 +51,7 @@ class RepostAgent:
 
     # ── Public entry point ───────────────────────────────────────────────────
 
-    def run(self) -> Optional[Dict[str, Any]]:
+    def run(self, force_duplicate: bool = False) -> Optional[Dict[str, Any]]:
         """
         Main entry point. Enforces an alternating image→reel→image→reel pattern.
         Checks what was posted last, picks the opposite type, and returns a result
@@ -87,6 +87,7 @@ class RepostAgent:
                 add_credit=add_credit,
                 include_reels=include_reels,
                 preferred_type=next_type,
+                force_duplicate=force_duplicate,
             )
             if result:
                 # Save which type was just posted for the next run
@@ -149,7 +150,7 @@ class RepostAgent:
             quiet=True,
             # ── Rate limiting: tell instaloader to sleep between requests ──────
             sleep=True,              # enables built-in adaptive sleep
-            max_connection_attempts=3,
+            max_connection_attempts=2,
         )
 
         # Suppress instaloader's internal 403-retry print messages —
@@ -190,6 +191,7 @@ class RepostAgent:
         add_credit: bool,
         include_reels: bool = False,
         preferred_type: str = "image",
+        force_duplicate: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """Scrape a public account for images and/or reels."""
         import instaloader
@@ -214,8 +216,8 @@ class RepostAgent:
         scanned = 0
 
         # Initial pause after profile load, before first post fetch
-        # (profile fetch itself is 1 API call — sleep before iterating posts)
-        initial_sleep = random.uniform(50, 70)
+        # Reduced for local testing
+        initial_sleep = random.uniform(2, 5)
         logger.debug(f"Initial sleep {initial_sleep:.1f}s before scanning posts...")
         time.sleep(initial_sleep)
 
@@ -231,9 +233,9 @@ class RepostAgent:
                 if scanned >= max_check:
                     break
 
-                # Politeness sleep between post metadata fetches (~1 min)
-                # Mimics human scrolling behaviour to avoid IG rate-limiting
-                sleep_s = random.uniform(50, 70)
+                # Politeness sleep between post metadata fetches
+                # Reduced for local testing
+                sleep_s = random.uniform(2, 5)
                 logger.debug(f"Sleeping {sleep_s:.1f}s between post fetches...")
                 time.sleep(sleep_s)
 
@@ -257,13 +259,13 @@ class RepostAgent:
         for post in candidates:
             post_id = str(post.shortcode)
 
-            # Dedup — skip if already reposted
-            if is_post_reposted(post_id):
+            # Dedup — skip if already reposted, UNLESS forcing a duplicate
+            if not force_duplicate and is_post_reposted(post_id):
                 logger.debug(f"Already reposted {post_id} — skipping")
                 continue
 
             # Suitability Filter (Jummah/Friday/Ramadan checks)
-            if not self._is_post_suitable(post):
+            if not force_duplicate and not self._is_post_suitable(post):
                 continue
 
             # Route to image or reel handler
@@ -286,6 +288,51 @@ class RepostAgent:
 
         logger.info(f"All checked posts from @{username} have already been reposted.")
         return None
+
+    # ── Manual URL Processing (Google Sheets Fallback) ────────────────────────
+    def process_specific_url(
+        self, url: str, category: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Fetch and download a specific URL manually requested by the user.
+        Passes the provided category directly into the caption engine.
+        """
+        import instaloader
+        logger.info(f"Processing manual URL: {url} (Category: {category})")
+
+        # Extract shortcode
+        parts = url.strip("/").split("/")
+        if len(parts) < 1:
+            return None
+        shortcode = parts[-1].split("?")[0]
+
+        download_dir = self.config.get("repost", {}).get("download_dir", "media/reposts")
+        os.makedirs(download_dir, exist_ok=True)
+
+        try:
+            L = self._get_loader()
+            post = instaloader.Post.from_shortcode(L.context, shortcode)
+        except Exception as exc:
+            logger.error(f"Failed to fetch post {shortcode}: {exc}")
+            return None
+
+        # Determine type
+        if post.is_video:
+            return self._download_and_prepare_reel(
+                post=post,
+                username=post.owner_username,
+                download_dir=download_dir,
+                add_credit=True,
+                category_override=category,
+            )
+        else:
+            return self._download_and_prepare(
+                post=post,
+                username=post.owner_username,
+                download_dir=download_dir,
+                add_credit=True,
+                category_override=category,
+            )
 
     def _is_post_suitable(self, post) -> bool:
         """
@@ -332,6 +379,7 @@ class RepostAgent:
         username: str,
         download_dir: str,
         add_credit: bool,
+        category_override: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Download image, validate aspect ratio, rewrite caption, log to DB."""
         post_id = str(post.shortcode)
@@ -385,6 +433,7 @@ class RepostAgent:
                 original=original_caption,
                 add_credit=add_credit,
                 credit_handle=username,
+                category_override=category_override,
             )
 
             # Log to flat file tracker
@@ -434,7 +483,7 @@ class RepostAgent:
     # ── Caption builder ───────────────────────────────────────────────────────
 
     def _rewrite_caption(
-        self, original: str, add_credit: bool, credit_handle: str
+        self, original: str, add_credit: bool, credit_handle: str, category_override: Optional[str] = None
     ) -> str:
         """
         Delegates to caption_engine.build_caption():
@@ -447,6 +496,7 @@ class RepostAgent:
             original=original,
             add_credit=add_credit,
             credit_handle=credit_handle,
+            category_override=category_override,
         )
 
     # ── Reel downloader ───────────────────────────────────────────────────────
@@ -457,6 +507,7 @@ class RepostAgent:
         username: str,
         download_dir: str,
         add_credit: bool,
+        category_override: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Download a video reel, validate duration, rewrite caption, mark as reposted."""
         post_id = str(post.shortcode)
@@ -504,6 +555,7 @@ class RepostAgent:
                 original=original_caption,
                 add_credit=add_credit,
                 credit_handle=username,
+                category_override=category_override,
             )
 
             # Mark as reposted
