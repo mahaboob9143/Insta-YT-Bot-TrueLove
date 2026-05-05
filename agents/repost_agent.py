@@ -149,7 +149,7 @@ class RepostAgent:
             post_metadata_txt_pattern="",
             quiet=True,
             # ── Rate limiting: tell instaloader to sleep between requests ──────
-            sleep=True,              # enables built-in adaptive sleep
+            sleep=False,             # disable built-in adaptive sleep (prevents 30-minute hangs on 429)
             max_connection_attempts=2,
         )
 
