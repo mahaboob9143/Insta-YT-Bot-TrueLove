@@ -1,13 +1,19 @@
 """
 agents/orchestrator.py — Orchestrator for InstaAgent Repost Pipeline.
 
-The Orchestrator coordinates the active agents to pull content from
-target profiles, process it, and push it to Meta Graph API.
+Content source: Google Sheets only (Instagram scraping is disabled).
 
 Posting pattern: reel → image → reel → image → ...
-The pattern is enforced regardless of URL order in Google Sheets.
-If the preferred type is unavailable, we fall back to whatever is available
-and the alternating logic self-corrects on the next run.
+Enforced regardless of URL order in the sheet.
+
+3-tier priority:
+  P1: skipped (auto_scrape_enabled: false — Instagram is blocking)
+  P2: Google Sheets — unposted URL matching the target type
+  P3: Google Sheets safeguard — ANY sheet URL (force_any=True), even if
+      already posted, to maintain the daily posting streak.
+
+mark_reposted() is called ONLY after a successful publish to Instagram,
+so dry-runs and failed posts never corrupt the dedup tracker.
 """
 
 from typing import Optional
@@ -17,6 +23,7 @@ from agents.repost_agent import RepostAgent
 from core.sheets_reader import get_pending_row
 from core.logger import get_logger
 from core.post_state import get_next_post_type, save_post_type
+from core.repost_tracker import mark_reposted
 
 logger = get_logger("Orchestrator")
 
@@ -27,12 +34,9 @@ class Orchestrator:
     """
 
     def __init__(self, dry_run: bool = False):
-        self.dry_run = dry_run
-
-        # Instantiate active agents
+        self.dry_run  = dry_run
         self.poster_agent = PosterAgent()
         self.repost_agent = RepostAgent()
-
         logger.info(f"Orchestrator ready (dry_run={dry_run})")
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -41,86 +45,79 @@ class Orchestrator:
         """
         Repost mode (--repost).
 
-        Enforces a strict reel → image → reel → image alternating pattern.
-        Reads config to decide which content source to use, tries each
-        priority tier in order, and publishes via PosterAgent.
+        Pulls content from Google Sheets (no Instagram scraping).
+        Enforces a strict reel → image alternating pattern.
+        Records the post in the dedup tracker only after a confirmed publish.
         """
         logger.info("=" * 60)
-        logger.info("  REPOST NOW — scrape & publish pipeline (IG + Facebook)")
+        logger.info("  REPOST NOW — Google Sheets → Instagram pipeline")
         logger.info("=" * 60)
 
-        from core.flags import get_config
-        config = get_config()
-        auto_scrape = config.get("repost", {}).get("auto_scrape_enabled", True)
-
-        # Determine what type we should post this run
+        # What type should we post this run?
         next_type = get_next_post_type()
-        logger.info(f"Pattern target: post a {next_type.upper()} this run.")
+        logger.info(f"Pattern target: {next_type.upper()} this run.")
 
-        result = None
+        result      = None
+        source_url  = None
+        is_safeguard = False   # True when Priority 3 fires
 
-        # ── Priority 1: Auto-Scrape ───────────────────────────────────────────
-        if auto_scrape:
-            logger.info("[Priority 1] RepostAgent: fetching unseen post from source account...")
-            result = self.repost_agent.run(force_duplicate=False)
-        else:
-            logger.info("[Priority 1 Skipped] auto_scrape_enabled is False.")
+        # ── Priority 1: Auto-Scrape — DISABLED (Instagram is blocking) ────────
+        logger.info("[Priority 1 Skipped] Instagram scraping is disabled.")
 
-        # ── Priority 2: Google Sheets Manual Queue ────────────────────────────
-        if not result:
-            logger.warning("[Priority 1 Failed] Checking Google Sheets manual queue...")
-            logger.info(f"Requesting {next_type.upper()} from sheet (will fall back if unavailable).")
+        # ── Priority 2: Google Sheets — unposted URL ──────────────────────────
+        logger.info("[Priority 2] Checking Google Sheets for an unposted URL...")
+        row = get_pending_row(preferred_type=next_type, force_any=False)
 
-            row = get_pending_row(preferred_type=next_type)
-            if row:
-                url, cat = row
-                logger.info(f"[Priority 2] Processing manual URL: {url}")
-                result = self.repost_agent.process_specific_url(url, category=cat)
+        if row:
+            source_url = row[0]
+            cat        = row[1]
+            logger.info(f"[Priority 2] Processing URL: {source_url}")
+            result = self.repost_agent.process_specific_url(source_url, category=cat)
 
-                # ── BUG FIX: save_post_type was not called for sheet-sourced posts ──
-                # We must record what type was *actually* posted (may differ from
-                # next_type if the sheet fell back to the opposite type).
-                if result:
-                    actual_type = "reel" if result.get("is_reel") else "image"
-                    save_post_type(actual_type)
-                    next_target = "reel" if actual_type == "image" else "image"
-                    logger.info(
-                        f"[Pattern] Posted {actual_type.upper()} "
-                        f"(requested {next_type.upper()}). "
-                        f"Next run will target {next_target.upper()}."
-                    )
-
-        # ── Priority 3: Duplicate Safeguard ───────────────────────────────────
+        # ── Priority 3: Google Sheets Safeguard — force any URL ───────────────
         if not result:
             logger.warning(
-                "[Priority 2 Failed] Google Sheet empty or exhausted. "
-                "Forcing a DUPLICATE post to maintain daily streak."
+                "[Priority 2 Failed] No unposted URLs found. "
+                "Activating safeguard — will re-use a URL from the sheet."
             )
-            result = self.repost_agent.run(force_duplicate=True)
+            row = get_pending_row(preferred_type=next_type, force_any=True)
 
+            if row:
+                source_url   = row[0]
+                cat          = row[1]
+                is_safeguard = True
+                logger.info(f"[Priority 3 Safeguard] Re-using URL: {source_url}")
+                result = self.repost_agent.process_specific_url(source_url, category=cat)
+
+        # ── All tiers failed ──────────────────────────────────────────────────
         if not result:
             logger.error(
-                "All 3 priority tiers failed. "
-                "Unable to fetch any content from Instagram today."
+                "All priority tiers failed. "
+                "Google Sheet appears to be empty or unreachable."
             )
             return
 
-        image = result["image"]
-        caption = result["caption"]
+        image          = result["image"]
+        caption        = result["caption"]
         source_post_id = result["source_post_id"]
+        actual_type    = "reel" if result.get("is_reel") else "image"
+        category       = result.get("category", "general")
 
-        logger.info(f"Repost ready — source post: {source_post_id}")
+        logger.info(f"Content ready — type: {actual_type.upper()}, source: {source_post_id}")
+        if is_safeguard:
+            logger.warning(f"[Safeguard] This is a repeat post of {source_post_id}.")
         logger.info(f"Caption preview:\n{caption[:300]}...")
 
-        # ── Dry-run shortcut ───────────────────────────────────────────────────
+        # ── Dry-run: stop here — do NOT write to tracker ──────────────────────
         if self.dry_run:
             logger.info("[DRY RUN] Cycle complete — would post:")
-            logger.info(f"  Source : {source_post_id}")
-            logger.info(f"  Type   : {'REEL' if result.get('is_reel') else 'IMAGE'}")
-            logger.info(f"  Image  : {image.get('local_path', 'N/A')}")
+            logger.info(f"  Source  : {source_post_id}")
+            logger.info(f"  Type    : {actual_type.upper()}")
+            logger.info(f"  Image   : {image.get('local_path', 'N/A')}")
+            logger.info("[DRY RUN] Tracker NOT updated (no actual publish).")
             return
 
-        # ── Step 2: Publish via PosterAgent (Instagram + Facebook) ────────────
+        # ── Publish via PosterAgent ───────────────────────────────────────────
         logger.info("Publishing to Instagram (and Facebook if enabled)...")
         ig_post_id: Optional[str] = self.poster_agent.post(
             image=image,
@@ -129,7 +126,18 @@ class Orchestrator:
         )
 
         if not ig_post_id:
-            logger.error("Post failed. Check logs/errors.log for details.")
+            logger.error("Publish failed — tracker NOT updated. Check logs.")
             return
 
+        # ── Record ONLY after confirmed publish ───────────────────────────────
+        mark_reposted(
+            shortcode  = source_post_id,
+            post_type  = actual_type,
+            source_url = source_url or "",
+            category   = category,
+        )
+        save_post_type(actual_type)
+
+        next_target = "reel" if actual_type == "image" else "image"
         logger.info(f"Repost complete. IG post ID: {ig_post_id}")
+        logger.info(f"[Pattern] Next run will target: {next_target.upper()}")

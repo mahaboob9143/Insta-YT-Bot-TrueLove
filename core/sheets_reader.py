@@ -1,5 +1,9 @@
 """
 core/sheets_reader.py — Reads a public Google Sheet CSV to fetch manual URLs.
+
+Priority 2: Returns an unposted URL matching the preferred type.
+Priority 3: With force_any=True, returns ANY URL from the sheet (ignores dedup),
+            so the system can still post something even when all URLs are exhausted.
 """
 import csv
 import io
@@ -14,59 +18,95 @@ logger = get_logger("SheetsReader")
 # The public CSV export URL for the user's Google Sheet
 SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1UG-xzmeIt_0aCTrih4kCWYFY2fUFyPPYxJQE18Ext6w/export?format=csv"
 
-def get_pending_row(preferred_type: str = "image") -> Optional[Tuple[str, str]]:
+
+def get_pending_row(
+    preferred_type: str = "image",
+    force_any: bool = False,
+) -> Optional[Tuple[str, str]]:
     """
-    Downloads the public Google Sheet as a CSV.
-    Iterates through rows.
-    Attempts to find an unprocessed URL that matches the preferred_type.
-    If no match is found for the preferred_type, returns the first unprocessed URL available.
-    Returns None if the sheet is empty, unreachable, or all URLs are processed.
+    Downloads the public Google Sheet as CSV and returns a URL to post.
+
+    Normal mode (force_any=False — Priority 2):
+      - Skips URLs that are already in the dedup tracker.
+      - Tries to match the preferred_type (image or reel) first.
+      - Falls back to any unposted URL if preferred type is unavailable.
+      - Returns None if all URLs in the sheet have already been posted.
+
+    Force mode (force_any=True — Priority 3 safeguard):
+      - Ignores the dedup tracker entirely — treats all URLs as available.
+      - Still tries to match preferred_type first, then falls back.
+      - This ensures we can always post something even when the sheet
+        appears exhausted, rather than falling back to Instagram scraping.
+      - The URL selected will be re-posted (duplicate), which is intentional
+        to maintain the daily posting streak.
+
+    Returns:
+        (url, category) tuple, or None if the sheet is empty/unreachable.
     """
     try:
-        logger.info(f"Fetching manual queue from Google Sheets (looking for a {preferred_type.upper()})...")
+        mode_label = "FORCE ANY (safeguard)" if force_any else f"preferred={preferred_type.upper()}"
+        logger.info(f"Fetching manual queue from Google Sheets [{mode_label}]...")
+
         resp = requests.get(SHEET_CSV_URL, timeout=15)
         resp.raise_for_status()
-        
-        # Parse the CSV
-        csv_text = resp.text
-        reader = csv.DictReader(io.StringIO(csv_text))
-        
-        fallback_row = None
-        
+
+        reader = csv.DictReader(io.StringIO(resp.text))
+
+        preferred_match = None   # exact type match
+        fallback_match  = None   # any available URL (wrong type or already posted)
+
         for row in reader:
-            url = row.get("URL", "").strip()
+            url      = row.get("URL", "").strip()
             category = row.get("Category", "").strip()
-            
+
             if not url:
                 continue
-            
-            # Extract shortcode from the URL
-            parts = url.strip("/").split("/")
-            if len(parts) >= 1:
-                shortcode = parts[-1]
-                shortcode = shortcode.split("?")[0]
-                
-                if not is_reposted(shortcode):
-                    is_url_reel = "/reel/" in url.lower() or "/tv/" in url.lower()
-                    
-                    if (preferred_type == "reel" and is_url_reel) or (preferred_type != "reel" and not is_url_reel):
-                        logger.info(f"Found EXACT match for {preferred_type}: {url} (Category: {category or 'general'})")
-                        return (url, category)
-                    
-                    # Save the first non-matching unprocessed row as a fallback
-                    if not fallback_row:
-                        fallback_row = (url, category)
-                else:
-                    logger.debug(f"Skipping {url} — already in reposted_ids.txt")
 
-        # If we couldn't find the preferred type, but found SOMETHING unprocessed, return it
-        if fallback_row:
-            logger.warning(f"Could not find a {preferred_type} in the sheet. Falling back to next available URL: {fallback_row[0]}")
-            return fallback_row
+            # Extract shortcode from URL
+            shortcode = url.strip("/").split("/")[-1].split("?")[0]
 
-        logger.info("No unprocessed URLs found in Google Sheet.")
+            # Dedup check — skipped entirely in force mode
+            already_posted = is_reposted(shortcode)
+            if already_posted and not force_any:
+                logger.debug(f"Skipping {url} — already in tracker")
+                continue
+
+            is_reel_url = "/reel/" in url.lower() or "/tv/" in url.lower()
+            type_matches = (preferred_type == "reel" and is_reel_url) or \
+                           (preferred_type != "reel" and not is_reel_url)
+
+            if type_matches and preferred_match is None:
+                preferred_match = (url, category)
+                if not force_any:
+                    # In normal mode, return immediately on first exact match
+                    logger.info(
+                        f"Found EXACT match for {preferred_type.upper()}: "
+                        f"{url} (Category: {category or 'general'})"
+                    )
+                    return preferred_match
+
+            if fallback_match is None:
+                fallback_match = (url, category)
+
+        # In force mode, prefer exact type match but accept any
+        if force_any and preferred_match:
+            logger.info(
+                f"[Safeguard] Re-using {preferred_type.upper()} URL: "
+                f"{preferred_match[0]} (Category: {preferred_match[1] or 'general'})"
+            )
+            return preferred_match
+
+        if fallback_match:
+            label = "any available (safeguard)" if force_any else f"no {preferred_type} available, falling back"
+            logger.warning(
+                f"Could not find a {preferred_type.upper()} — "
+                f"using fallback URL [{label}]: {fallback_match[0]}"
+            )
+            return fallback_match
+
+        logger.info("No URLs found in Google Sheet.")
         return None
-        
+
     except Exception as e:
         logger.error(f"Failed to read Google Sheet: {e}")
         return None

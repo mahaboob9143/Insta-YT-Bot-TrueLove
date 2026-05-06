@@ -441,15 +441,9 @@ class RepostAgent:
                 category_override=category_override,
             )
 
-            # Log to Excel tracker with full metadata
-            source_url = f"https://www.instagram.com/p/{post_id}/"
-            log_repost(
-                shortcode=post_id,
-                post_type="image",
-                source_url=source_url,
-                category=category,
-            )
-
+            # NOTE: mark_reposted() is called in the orchestrator AFTER a
+            # confirmed publish — not here — so dry-runs and failed posts
+            # never corrupt the dedup tracker.
             logger.info("Caption rewritten. Ready to post.")
 
             image_dict = {
@@ -462,9 +456,10 @@ class RepostAgent:
             }
 
             return {
-                "image": image_dict,
-                "caption": rewritten,
+                "image":          image_dict,
+                "caption":        rewritten,
                 "source_post_id": post_id,
+                "category":       category,   # passed to orchestrator for tracker logging
             }
 
         except Exception as exc:
@@ -587,14 +582,9 @@ class RepostAgent:
                 category_override=category_override,
             )
 
-            # Log to Excel tracker with full metadata
-            source_url = f"https://www.instagram.com/reel/{post_id}/"
-            log_repost(
-                shortcode=post_id,
-                post_type="reel",
-                source_url=source_url,
-                category=category,
-            )
+            # NOTE: mark_reposted() is called in the orchestrator AFTER a
+            # confirmed publish — not here — so dry-runs and failed posts
+            # never corrupt the dedup tracker.
             logger.info("Reel ready to post.")
 
             video_dict = {
@@ -606,10 +596,11 @@ class RepostAgent:
             }
 
             return {
-                "image": video_dict,   # Kept as 'image' key for PosterAgent compatibility
-                "caption": rewritten,
+                "image":          video_dict,   # kept as 'image' key for PosterAgent compatibility
+                "caption":        rewritten,
                 "source_post_id": post_id,
-                "is_reel": True,
+                "is_reel":        True,
+                "category":       category,   # passed to orchestrator for tracker logging
             }
 
         except Exception as exc:
