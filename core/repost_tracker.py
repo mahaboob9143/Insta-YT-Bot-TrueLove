@@ -162,3 +162,54 @@ def all_reposted() -> List[str]:
     ]
     wb.close()
     return result
+
+
+def get_last_posted_at(shortcode: str) -> datetime:
+    """
+    Return the posted_at datetime for a shortcode.
+
+    Used by the Priority 3 safeguard to sort all sheet URLs by age so the
+    system re-posts the one that was posted the longest time ago (stalest),
+    not the most recently posted content.
+
+    Returns:
+        datetime — actual posted_at if available.
+        datetime.min — for 'migrated' entries (treat as very old / always eligible).
+        datetime.max — for shortcodes not in the tracker (should not happen in P3,
+                       but means 'unknown age, prefer last').
+    """
+    _ensure_workbook()
+    import openpyxl
+
+    shortcode = shortcode.strip()
+    wb = openpyxl.load_workbook(TRACKER_FILE, read_only=True, data_only=True)
+    ws = wb[SHEET_LOG]
+
+    oldest_dt = None   # if a shortcode appears multiple times, use the earliest row
+
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        if not row or str(row[0]).strip() != shortcode:
+            continue
+
+        raw = str(row[2]).strip() if row[2] else ""
+
+        if raw == "migrated" or not raw:
+            # Treat migrated entries as extremely old so they're picked first
+            dt = datetime.min.replace(tzinfo=timezone.utc)
+        else:
+            try:
+                dt = datetime.strptime(raw, "%Y-%m-%d %H:%M:%S UTC").replace(tzinfo=timezone.utc)
+            except ValueError:
+                dt = datetime.min.replace(tzinfo=timezone.utc)
+
+        if oldest_dt is None or dt < oldest_dt:
+            oldest_dt = dt
+
+    wb.close()
+
+    if oldest_dt is None:
+        # Shortcode not in tracker — treat as newest (least preferred for repeat)
+        return datetime.max.replace(tzinfo=timezone.utc)
+
+    return oldest_dt
+

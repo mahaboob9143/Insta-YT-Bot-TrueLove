@@ -2,16 +2,17 @@
 core/sheets_reader.py — Reads a public Google Sheet CSV to fetch manual URLs.
 
 Priority 2: Returns an unposted URL matching the preferred type.
-Priority 3: With force_any=True, returns ANY URL from the sheet (ignores dedup),
-            so the system can still post something even when all URLs are exhausted.
+Priority 3: With force_any=True, returns the OLDEST-POSTED URL from the sheet
+            (i.e. the one posted the longest time ago), so repeated content is
+            always the stalest — not the most recently posted.
 """
 import csv
 import io
 import requests
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 
 from core.logger import get_logger
-from core.repost_tracker import is_reposted
+from core.repost_tracker import is_reposted, get_last_posted_at
 
 logger = get_logger("SheetsReader")
 
@@ -29,22 +30,22 @@ def get_pending_row(
     Normal mode (force_any=False — Priority 2):
       - Skips URLs that are already in the dedup tracker.
       - Tries to match the preferred_type (image or reel) first.
-      - Falls back to any unposted URL if preferred type is unavailable.
-      - Returns None if all URLs in the sheet have already been posted.
+      - Falls back to any unposted URL if the preferred type is unavailable.
+      - Returns None if all URLs have already been posted.
 
-    Force mode (force_any=True — Priority 3 safeguard):
-      - Ignores the dedup tracker entirely — treats all URLs as available.
-      - Still tries to match preferred_type first, then falls back.
-      - This ensures we can always post something even when the sheet
-        appears exhausted, rather than falling back to Instagram scraping.
-      - The URL selected will be re-posted (duplicate), which is intentional
-        to maintain the daily posting streak.
+    Safeguard mode (force_any=True — Priority 3):
+      - Ignores the dedup check — all sheet URLs are candidates.
+      - Picks the URL that was posted the LONGEST time ago (oldest posted_at
+        in tracker.xlsx), so the repeated content is as stale as possible.
+      - Still prefers the correct type (image/reel) for the alternating pattern.
+        Falls back to any type if the preferred type has no match.
+      - Returns None only if the sheet is empty or unreachable.
 
     Returns:
-        (url, category) tuple, or None if the sheet is empty/unreachable.
+        (url, category) tuple, or None.
     """
     try:
-        mode_label = "FORCE ANY (safeguard)" if force_any else f"preferred={preferred_type.upper()}"
+        mode_label = "FORCE OLDEST (safeguard)" if force_any else f"preferred={preferred_type.upper()}"
         logger.info(f"Fetching manual queue from Google Sheets [{mode_label}]...")
 
         resp = requests.get(SHEET_CSV_URL, timeout=15)
@@ -52,59 +53,91 @@ def get_pending_row(
 
         reader = csv.DictReader(io.StringIO(resp.text))
 
-        preferred_match = None   # exact type match
-        fallback_match  = None   # any available URL (wrong type or already posted)
+        # ── Normal mode (Priority 2) ───────────────────────────────────────────
+        if not force_any:
+            preferred_match = None
+            fallback_match  = None
 
-        for row in reader:
-            url      = row.get("URL", "").strip()
-            category = row.get("Category", "").strip()
+            for row in reader:
+                url      = row.get("URL", "").strip()
+                category = row.get("Category", "").strip()
+                if not url:
+                    continue
 
-            if not url:
-                continue
+                shortcode = url.strip("/").split("/")[-1].split("?")[0]
+                if is_reposted(shortcode):
+                    logger.debug(f"Skipping {url} — already in tracker")
+                    continue
 
-            # Extract shortcode from URL
-            shortcode = url.strip("/").split("/")[-1].split("?")[0]
+                is_reel_url  = "/reel/" in url.lower() or "/tv/" in url.lower()
+                type_matches = (preferred_type == "reel" and is_reel_url) or \
+                               (preferred_type != "reel" and not is_reel_url)
 
-            # Dedup check — skipped entirely in force mode
-            already_posted = is_reposted(shortcode)
-            if already_posted and not force_any:
-                logger.debug(f"Skipping {url} — already in tracker")
-                continue
-
-            is_reel_url = "/reel/" in url.lower() or "/tv/" in url.lower()
-            type_matches = (preferred_type == "reel" and is_reel_url) or \
-                           (preferred_type != "reel" and not is_reel_url)
-
-            if type_matches and preferred_match is None:
-                preferred_match = (url, category)
-                if not force_any:
-                    # In normal mode, return immediately on first exact match
+                if type_matches:
                     logger.info(
                         f"Found EXACT match for {preferred_type.upper()}: "
                         f"{url} (Category: {category or 'general'})"
                     )
-                    return preferred_match
+                    return (url, category)
 
-            if fallback_match is None:
-                fallback_match = (url, category)
+                if fallback_match is None:
+                    fallback_match = (url, category)
 
-        # In force mode, prefer exact type match but accept any
-        if force_any and preferred_match:
+            if fallback_match:
+                logger.warning(
+                    f"No unposted {preferred_type.upper()} found — "
+                    f"falling back to: {fallback_match[0]}"
+                )
+                return fallback_match
+
+            logger.info("No unposted URLs found in Google Sheet.")
+            return None
+
+        # ── Safeguard mode (Priority 3): pick the OLDEST-POSTED URL ───────────
+        # Collect every URL in the sheet (all types, ignore dedup)
+        preferred_candidates: List[Tuple[str, str]] = []   # correct type
+        fallback_candidates:  List[Tuple[str, str]] = []   # any type
+
+        for row in reader:
+            url      = row.get("URL", "").strip()
+            category = row.get("Category", "").strip()
+            if not url:
+                continue
+
+            is_reel_url  = "/reel/" in url.lower() or "/tv/" in url.lower()
+            type_matches = (preferred_type == "reel" and is_reel_url) or \
+                           (preferred_type != "reel" and not is_reel_url)
+
+            if type_matches:
+                preferred_candidates.append((url, category))
+            else:
+                fallback_candidates.append((url, category))
+
+        def _sort_key(entry: Tuple[str, str]):
+            """Sort ascending by posted_at — oldest first."""
+            url = entry[0]
+            shortcode = url.strip("/").split("/")[-1].split("?")[0]
+            return get_last_posted_at(shortcode)
+
+        if preferred_candidates:
+            preferred_candidates.sort(key=_sort_key)
+            chosen = preferred_candidates[0]
             logger.info(
-                f"[Safeguard] Re-using {preferred_type.upper()} URL: "
-                f"{preferred_match[0]} (Category: {preferred_match[1] or 'general'})"
+                f"[Safeguard] Re-posting OLDEST {preferred_type.upper()}: "
+                f"{chosen[0]} (posted longest ago)"
             )
-            return preferred_match
+            return chosen
 
-        if fallback_match:
-            label = "any available (safeguard)" if force_any else f"no {preferred_type} available, falling back"
+        if fallback_candidates:
+            fallback_candidates.sort(key=_sort_key)
+            chosen = fallback_candidates[0]
             logger.warning(
-                f"Could not find a {preferred_type.upper()} — "
-                f"using fallback URL [{label}]: {fallback_match[0]}"
+                f"[Safeguard] No {preferred_type.upper()} in sheet — "
+                f"re-posting oldest available: {chosen[0]}"
             )
-            return fallback_match
+            return chosen
 
-        logger.info("No URLs found in Google Sheet.")
+        logger.error("[Safeguard] Google Sheet is empty — nothing to post.")
         return None
 
     except Exception as e:
