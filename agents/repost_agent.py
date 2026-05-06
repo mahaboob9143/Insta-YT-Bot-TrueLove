@@ -33,7 +33,7 @@ from PIL import Image as PILImage
 from core.repost_tracker import is_reposted as is_post_reposted, mark_reposted as log_repost
 from core.flags import get_config
 from core.logger import get_logger
-from core.caption_engine import build_caption
+from core.caption_engine import build_caption, classify_caption, clean_caption
 from core.post_state import get_next_post_type, save_post_type
 
 logger = get_logger("RepostAgent")
@@ -410,7 +410,12 @@ class RepostAgent:
                     f"({aspect_ratio:.2f})"
                 )
                 # Log it so we don't re-check this post
-                log_repost(post_id)
+                log_repost(
+                    shortcode=post_id,
+                    post_type="image",
+                    source_url=f"https://www.instagram.com/p/{post_id}/",
+                    category="skipped-aspect-ratio",
+                )
                 return None
 
             # Crop to Instagram-safe ratio + resize to max 1080px
@@ -427,17 +432,23 @@ class RepostAgent:
                 f"({final_w}x{final_h})"
             )
 
-            # Rewrite caption
+            # Rewrite caption — also returns the category used
             original_caption = post.caption or ""
-            rewritten = self._rewrite_caption(
+            rewritten, category = self._rewrite_caption(
                 original=original_caption,
                 add_credit=add_credit,
                 credit_handle=username,
                 category_override=category_override,
             )
 
-            # Log to flat file tracker
-            log_repost(post_id)
+            # Log to Excel tracker with full metadata
+            source_url = f"https://www.instagram.com/p/{post_id}/"
+            log_repost(
+                shortcode=post_id,
+                post_type="image",
+                source_url=source_url,
+                category=category,
+            )
 
             logger.info("Caption rewritten. Ready to post.")
 
@@ -484,20 +495,33 @@ class RepostAgent:
 
     def _rewrite_caption(
         self, original: str, add_credit: bool, credit_handle: str, category_override: Optional[str] = None
-    ) -> str:
+    ) -> tuple:
         """
-        Delegates to caption_engine.build_caption():
+        Delegates to caption_engine.build_caption().
+        Returns (caption_str, category_str) so callers can record the category
+        in the Excel tracker without re-classifying.
+
+        Steps:
           1. Clean (strip hashtags, normalize whitespace)
           2. Classify via keyword scoring (sabr/shukr/tawakkul/akhirah/dua/general)
-          3. Build [HOOK] + [BODY] + [EMOTIONAL LINE] + [CTA] + [HASHTAGS]
+          3. Build [PRE-HOOK] + [HOOK] + [BODY] + [EMOTIONAL LINE] + [HASHTAGS]
           4. Append credit line if requested
         """
-        return build_caption(
+        # Determine the category that will be used (mirrors caption_engine logic)
+        body = clean_caption(original)
+        from core.caption_engine import _KEYWORDS
+        if category_override and category_override in _KEYWORDS:
+            category = category_override
+        else:
+            category = classify_caption(body)
+
+        caption = build_caption(
             original=original,
             add_credit=add_credit,
             credit_handle=credit_handle,
             category_override=category_override,
         )
+        return caption, category
 
     # ── Reel downloader ───────────────────────────────────────────────────────
 
@@ -546,20 +570,31 @@ class RepostAgent:
             if file_size_mb > 200:
                 logger.warning(f"Reel {post_id} is too large ({file_size_mb:.1f} MB) — skipping")
                 os.remove(local_path)
-                log_repost(post_id)
+                log_repost(
+                    shortcode=post_id,
+                    post_type="reel",
+                    source_url=f"https://www.instagram.com/reel/{post_id}/",
+                    category="skipped-oversized",
+                )
                 return None
 
-            # Rewrite caption
+            # Rewrite caption — also returns the category used
             original_caption = post.caption or ""
-            rewritten = self._rewrite_caption(
+            rewritten, category = self._rewrite_caption(
                 original=original_caption,
                 add_credit=add_credit,
                 credit_handle=username,
                 category_override=category_override,
             )
 
-            # Mark as reposted
-            log_repost(post_id)
+            # Log to Excel tracker with full metadata
+            source_url = f"https://www.instagram.com/reel/{post_id}/"
+            log_repost(
+                shortcode=post_id,
+                post_type="reel",
+                source_url=source_url,
+                category=category,
+            )
             logger.info("Reel ready to post.")
 
             video_dict = {

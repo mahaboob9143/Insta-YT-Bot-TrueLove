@@ -5,7 +5,7 @@ on:
     # 0:30 AM UTC = 6:00 AM IST
     # 12:30 PM UTC = 6:00 PM IST
     - cron: '30 0,12 * * *'
-  workflow_dispatch:  # Allows manual triggering from GitHub UI
+  workflow_dispatch:  # Allows manual triggering from GitHub UI (any branch)
 
 jobs:
   run-repost:
@@ -40,14 +40,15 @@ jobs:
           delay=$((RANDOM % 10))
           echo "Sleeping for $delay seconds before posting..."
           sleep $delay
-          
+
           # Run the repost pipeline
           python main.py --repost
 
-      - name: Commit Dedup Tracker (if changed)
+      - name: Commit Tracker (if changed)
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add data/reposted_ids.txt data/last_post_type.txt
-          # Only commit if there are changes
-          git diff --quiet && git diff --staged --quiet || (git commit -m "chore: update repost tracker" && git push)
+          # Stage the Excel tracker (replaces the old .txt files)
+          git add data/tracker.xlsx
+          # Only commit if there are actual changes
+          git diff --quiet && git diff --staged --quiet || (git commit -m "chore: update repost tracker [skip ci]" && git push)

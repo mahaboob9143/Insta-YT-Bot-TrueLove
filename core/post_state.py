@@ -1,37 +1,58 @@
 """
 core/post_state.py — Tracks the last post type to enforce alternating pattern.
 
-Stores 'image' or 'reel' in data/last_post_type.txt.
-On each run, the bot checks this file to decide which type to post next.
+Reads/writes the 'State' sheet in data/tracker.xlsx.
+Replaces the legacy data/last_post_type.txt flat file.
 
 Pattern: image → reel → image → reel → ...
 """
 
 from pathlib import Path
 
-_STATE_FILE = Path("data/last_post_type.txt")
+from core.repost_tracker import TRACKER_FILE, SHEET_STATE, _ensure_workbook
 
-
-def _ensure_file() -> None:
-    _STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    if not _STATE_FILE.exists():
-        # Default: pretend last was a reel so we start with an image
-        _STATE_FILE.write_text("reel", encoding="utf-8")
+_KEY = "last_post_type"
 
 
 def get_last_post_type() -> str:
     """Return 'image' or 'reel' — whichever was posted last."""
-    _ensure_file()
-    return _STATE_FILE.read_text(encoding="utf-8").strip().lower()
+    _ensure_workbook()
+    import openpyxl
+
+    wb = openpyxl.load_workbook(TRACKER_FILE, read_only=True, data_only=True)
+    ws = wb[SHEET_STATE]
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        if row and row[0] == _KEY:
+            wb.close()
+            return str(row[1]).strip().lower() if row[1] else "reel"
+    wb.close()
+    return "reel"  # safe default → next run will post an image
 
 
 def get_next_post_type() -> str:
-    """Return which type should be posted next based on the alternating pattern."""
+    """Return which type should be posted next (opposite of last)."""
     last = get_last_post_type()
     return "reel" if last == "image" else "image"
 
 
 def save_post_type(post_type: str) -> None:
-    """Save the type of the post that was just published ('image' or 'reel')."""
-    _ensure_file()
-    _STATE_FILE.write_text(post_type.strip().lower(), encoding="utf-8")
+    """
+    Update the State sheet with the type that was just published.
+    Creates the row if it doesn't exist yet.
+    """
+    _ensure_workbook()
+    import openpyxl
+
+    post_type = post_type.strip().lower()
+    wb = openpyxl.load_workbook(TRACKER_FILE)
+    ws = wb[SHEET_STATE]
+
+    for row in ws.iter_rows(min_row=2):
+        if row[0].value == _KEY:
+            row[1].value = post_type
+            wb.save(TRACKER_FILE)
+            return
+
+    # Key not found — append it (shouldn't happen after _ensure_workbook, but be safe)
+    ws.append([_KEY, post_type])
+    wb.save(TRACKER_FILE)
