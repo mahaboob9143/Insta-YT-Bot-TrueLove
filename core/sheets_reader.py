@@ -1,15 +1,21 @@
 """
 core/sheets_reader.py — Reads a public Google Sheet CSV to fetch manual URLs.
 
-Priority 2: Returns an unposted URL matching the preferred type.
-Priority 3: With force_any=True, returns the OLDEST-POSTED URL from the sheet
+Sheet columns expected:
+    id | url | caption | type | ownerId | ownerUsername
+
+Priority 2: Returns an unposted row matching the preferred type.
+Priority 3: With force_any=True, returns the OLDEST-POSTED row from the sheet
             (i.e. the one posted the longest time ago), so repeated content is
             always the stalest — not the most recently posted.
+
+Return value is a dict with keys:
+    url, category, caption, post_type, owner_username
 """
 import csv
 import io
 import requests
-from typing import Optional, Tuple, List
+from typing import Optional, List, Dict
 
 from core.logger import get_logger
 from core.repost_tracker import is_reposted, get_last_posted_at
@@ -20,29 +26,63 @@ logger = get_logger("SheetsReader")
 SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1UG-xzmeIt_0aCTrih4kCWYFY2fUFyPPYxJQE18Ext6w/export?format=csv"
 
 
+def _parse_row(row: dict) -> Optional[Dict]:
+    """
+    Parse a single CSV row into a normalised dict.
+    Handles both old sheet format (URL/Category) and new format (url/type/caption/ownerUsername).
+    Returns None if the row has no usable URL.
+    """
+    # Support both old uppercase URL and new lowercase url column
+    url = row.get("url", row.get("URL", "")).strip()
+    if not url:
+        return None
+
+    # "type" column: "Image" | "Video" → normalise to "image" | "reel"
+    raw_type = row.get("type", "").strip().lower()
+    if raw_type == "video":
+        post_type = "reel"
+    elif raw_type == "image":
+        post_type = "image"
+    else:
+        # Fall back to URL-sniffing for old rows
+        post_type = "reel" if ("/reel/" in url.lower() or "/tv/" in url.lower()) else "image"
+
+    # Shortcode from URL
+    shortcode = url.strip("/").split("/")[-1].split("?")[0]
+
+    return {
+        "url":           url,
+        "shortcode":     shortcode,
+        "post_type":     post_type,
+        "caption":       row.get("caption", "").strip(),       # pre-scraped caption
+        "owner_username": row.get("ownerUsername", "").strip(), # credit handle
+        "category":      row.get("Category", "").strip(),      # optional manual category
+    }
+
+
 def get_pending_row(
     preferred_type: str = "image",
     force_any: bool = False,
-) -> Optional[Tuple[str, str]]:
+) -> Optional[Dict]:
     """
-    Downloads the public Google Sheet as CSV and returns a URL to post.
+    Downloads the public Google Sheet as CSV and returns a row dict to post.
 
     Normal mode (force_any=False — Priority 2):
-      - Skips URLs that are already in the dedup tracker.
-      - Tries to match the preferred_type (image or reel) first.
-      - Falls back to any unposted URL if the preferred type is unavailable.
+      - Skips rows whose URL shortcode is already in the dedup tracker.
+      - Tries to match preferred_type (image or reel) first.
+      - Falls back to any unposted row if the preferred type is unavailable.
       - Returns None if all URLs have already been posted.
 
     Safeguard mode (force_any=True — Priority 3):
-      - Ignores the dedup check — all sheet URLs are candidates.
-      - Picks the URL that was posted the LONGEST time ago (oldest posted_at
-        in tracker.xlsx), so the repeated content is as stale as possible.
+      - Ignores the dedup check — all sheet rows are candidates.
+      - Picks the row whose URL was posted the LONGEST time ago (oldest posted_at).
       - Still prefers the correct type (image/reel) for the alternating pattern.
         Falls back to any type if the preferred type has no match.
       - Returns None only if the sheet is empty or unreachable.
 
     Returns:
-        (url, category) tuple, or None.
+        Dict with keys: url, shortcode, post_type, caption, owner_username, category
+        or None.
     """
     try:
         mode_label = "FORCE OLDEST (safeguard)" if force_any else f"preferred={preferred_type.upper()}"
@@ -58,73 +98,61 @@ def get_pending_row(
             preferred_match = None
             fallback_match  = None
 
-            for row in reader:
-                url      = row.get("URL", "").strip()
-                category = row.get("Category", "").strip()
-                if not url:
+            for raw_row in reader:
+                entry = _parse_row(raw_row)
+                if entry is None:
                     continue
 
-                shortcode = url.strip("/").split("/")[-1].split("?")[0]
-                if is_reposted(shortcode):
-                    logger.debug(f"Skipping {url} — already in tracker")
+                if is_reposted(entry["shortcode"]):
+                    logger.debug(f"Skipping {entry['url']} — already in tracker")
                     continue
 
-                is_reel_url  = "/reel/" in url.lower() or "/tv/" in url.lower()
-                type_matches = (preferred_type == "reel" and is_reel_url) or \
-                               (preferred_type != "reel" and not is_reel_url)
+                type_matches = (entry["post_type"] == preferred_type)
 
                 if type_matches:
                     logger.info(
                         f"Found EXACT match for {preferred_type.upper()}: "
-                        f"{url} (Category: {category or 'general'})"
+                        f"{entry['url']} | @{entry['owner_username'] or 'unknown'}"
                     )
-                    return (url, category)
+                    return entry
 
                 if fallback_match is None:
-                    fallback_match = (url, category)
+                    fallback_match = entry
 
             if fallback_match:
                 logger.warning(
                     f"No unposted {preferred_type.upper()} found — "
-                    f"falling back to: {fallback_match[0]}"
+                    f"falling back to: {fallback_match['url']}"
                 )
                 return fallback_match
 
             logger.info("No unposted URLs found in Google Sheet.")
             return None
 
-        # ── Safeguard mode (Priority 3): pick the OLDEST-POSTED URL ───────────
-        # Collect every URL in the sheet (all types, ignore dedup)
-        preferred_candidates: List[Tuple[str, str]] = []   # correct type
-        fallback_candidates:  List[Tuple[str, str]] = []   # any type
+        # ── Safeguard mode (Priority 3): pick the OLDEST-POSTED row ───────────
+        preferred_candidates: List[Dict] = []   # correct type
+        fallback_candidates:  List[Dict] = []   # any type
 
-        for row in reader:
-            url      = row.get("URL", "").strip()
-            category = row.get("Category", "").strip()
-            if not url:
+        for raw_row in reader:
+            entry = _parse_row(raw_row)
+            if entry is None:
                 continue
 
-            is_reel_url  = "/reel/" in url.lower() or "/tv/" in url.lower()
-            type_matches = (preferred_type == "reel" and is_reel_url) or \
-                           (preferred_type != "reel" and not is_reel_url)
-
-            if type_matches:
-                preferred_candidates.append((url, category))
+            if entry["post_type"] == preferred_type:
+                preferred_candidates.append(entry)
             else:
-                fallback_candidates.append((url, category))
+                fallback_candidates.append(entry)
 
-        def _sort_key(entry: Tuple[str, str]):
+        def _sort_key(entry: Dict):
             """Sort ascending by posted_at — oldest first."""
-            url = entry[0]
-            shortcode = url.strip("/").split("/")[-1].split("?")[0]
-            return get_last_posted_at(shortcode)
+            return get_last_posted_at(entry["shortcode"])
 
         if preferred_candidates:
             preferred_candidates.sort(key=_sort_key)
             chosen = preferred_candidates[0]
             logger.info(
                 f"[Safeguard] Re-posting OLDEST {preferred_type.upper()}: "
-                f"{chosen[0]} (posted longest ago)"
+                f"{chosen['url']} (posted longest ago)"
             )
             return chosen
 
@@ -133,7 +161,7 @@ def get_pending_row(
             chosen = fallback_candidates[0]
             logger.warning(
                 f"[Safeguard] No {preferred_type.upper()} in sheet — "
-                f"re-posting oldest available: {chosen[0]}"
+                f"re-posting oldest available: {chosen['url']}"
             )
             return chosen
 

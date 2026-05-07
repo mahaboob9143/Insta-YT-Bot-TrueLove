@@ -69,10 +69,14 @@ class Orchestrator:
         row = get_pending_row(preferred_type=next_type, force_any=False)
 
         if row:
-            source_url = row[0]
-            cat        = row[1]
+            source_url = row["url"]
             logger.info(f"[Priority 2] Processing URL: {source_url}")
-            result = self.repost_agent.process_specific_url(source_url, category=cat)
+            result = self.repost_agent.process_specific_url(
+                url            = source_url,
+                category       = row.get("category", ""),
+                sheet_caption  = row.get("caption", ""),
+                owner_username = row.get("owner_username", ""),
+            )
 
         # ── Priority 3: Google Sheets Safeguard — force any URL ───────────────
         if not result:
@@ -83,11 +87,15 @@ class Orchestrator:
             row = get_pending_row(preferred_type=next_type, force_any=True)
 
             if row:
-                source_url   = row[0]
-                cat          = row[1]
+                source_url   = row["url"]
                 is_safeguard = True
                 logger.info(f"[Priority 3 Safeguard] Re-using URL: {source_url}")
-                result = self.repost_agent.process_specific_url(source_url, category=cat)
+                result = self.repost_agent.process_specific_url(
+                    url            = source_url,
+                    category       = row.get("category", ""),
+                    sheet_caption  = row.get("caption", ""),
+                    owner_username = row.get("owner_username", ""),
+                )
 
         # ── All tiers failed ──────────────────────────────────────────────────
         if not result:

@@ -28,6 +28,7 @@ from io import BytesIO
 from typing import Optional, Dict, Any, List
 
 import requests
+import instaloader
 from PIL import Image as PILImage
 
 from core.repost_tracker import is_reposted as is_post_reposted, mark_reposted as log_repost
@@ -136,8 +137,7 @@ class RepostAgent:
         Injects a session cookie if available so Instagram doesn't 403 us.
         Falls back to fresh user/pass login, then anonymous (may be rate-limited).
         """
-        import instaloader
-        import io
+        # Removed local imports to fix linting errors
 
         L = instaloader.Instaloader(
             download_pictures=False,
@@ -194,8 +194,6 @@ class RepostAgent:
         force_duplicate: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """Scrape a public account for images and/or reels."""
-        import instaloader
-
         logger.info(f"Scraping @{username} — looking for a {preferred_type.upper()}...")
 
         try:
@@ -291,14 +289,23 @@ class RepostAgent:
 
     # ── Manual URL Processing (Google Sheets Fallback) ────────────────────────
     def process_specific_url(
-        self, url: str, category: str
+        self,
+        url: str,
+        category: str = "",
+        sheet_caption: str = "",
+        owner_username: str = "",
     ) -> Optional[Dict[str, Any]]:
         """
-        Fetch and download a specific URL manually requested by the user.
-        Passes the provided category directly into the caption engine.
+        Fetch and download a specific URL from the Google Sheet.
+
+        If the sheet already provides `sheet_caption`, we skip the Instaloader
+        metadata fetch entirely (much faster, no 403 risk from Instagram).
+        We still use Instaloader to download the actual media file.
+
+        If `owner_username` is provided from the sheet, it is used as the
+        credit handle in the caption (e.g. "Via @softeningsayings").
         """
-        import instaloader
-        logger.info(f"Processing manual URL: {url} (Category: {category})")
+        logger.info(f"Processing manual URL: {url} (Category: {category or 'general'})")
 
         # Extract shortcode
         parts = url.strip("/").split("/")
@@ -316,23 +323,32 @@ class RepostAgent:
             logger.error(f"Failed to fetch post {shortcode}: {exc}")
             return None
 
-        # Determine type
+        # Use owner_username from sheet if available, fall back to post metadata
+        credit_handle = owner_username or post.owner_username
+
+        # If the sheet already supplied a caption, skip the metadata scrape
+        original_caption = sheet_caption or post.caption or ""
+
+        # Determine type and download
         if post.is_video:
             return self._download_and_prepare_reel(
                 post=post,
-                username=post.owner_username,
+                username=credit_handle,
                 download_dir=download_dir,
                 add_credit=True,
                 category_override=category,
+                caption_override=original_caption,
             )
         else:
             return self._download_and_prepare(
                 post=post,
-                username=post.owner_username,
+                username=credit_handle,
                 download_dir=download_dir,
                 add_credit=True,
                 category_override=category,
+                caption_override=original_caption,
             )
+
 
     def _is_post_suitable(self, post) -> bool:
         """
@@ -380,6 +396,7 @@ class RepostAgent:
         download_dir: str,
         add_credit: bool,
         category_override: Optional[str] = None,
+        caption_override: str = "",
     ) -> Optional[Dict[str, Any]]:
         """Download image, validate aspect ratio, rewrite caption, log to DB."""
         post_id = str(post.shortcode)
@@ -432,8 +449,8 @@ class RepostAgent:
                 f"({final_w}x{final_h})"
             )
 
-            # Rewrite caption — also returns the category used
-            original_caption = post.caption or ""
+            # Rewrite caption — use sheet caption if provided, else fall back to post metadata
+            original_caption = caption_override or post.caption or ""
             rewritten, category = self._rewrite_caption(
                 original=original_caption,
                 add_credit=add_credit,
@@ -527,6 +544,7 @@ class RepostAgent:
         download_dir: str,
         add_credit: bool,
         category_override: Optional[str] = None,
+        caption_override: str = "",
     ) -> Optional[Dict[str, Any]]:
         """Download a video reel, validate duration, rewrite caption, mark as reposted."""
         post_id = str(post.shortcode)
@@ -573,8 +591,8 @@ class RepostAgent:
                 )
                 return None
 
-            # Rewrite caption — also returns the category used
-            original_caption = post.caption or ""
+            # Rewrite caption — use sheet caption if provided, else fall back to post metadata
+            original_caption = caption_override or post.caption or ""
             rewritten, category = self._rewrite_caption(
                 original=original_caption,
                 add_credit=add_credit,
