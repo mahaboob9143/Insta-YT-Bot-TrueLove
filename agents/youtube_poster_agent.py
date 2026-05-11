@@ -28,7 +28,7 @@ _TOKEN_URI        = "https://oauth2.googleapis.com/token"
 _SCOPES           = ["https://www.googleapis.com/auth/youtube.upload"]
 _MAX_TITLE_LEN    = 100     # YouTube hard limit for video titles
 _SHORTS_TAG       = "#Shorts"
-_DEFAULT_CATEGORY = "22"    # "People & Blogs" — most common for Islamic content
+_DEFAULT_CATEGORY = "24"    # "Entertainment" — best fit for dance/reel content
 
 
 class YouTubePosterAgent:
@@ -150,7 +150,7 @@ class YouTubePosterAgent:
         config      = get_config()
         yt_cfg      = config.get("youtube", {})
         category_id = str(yt_cfg.get("category_id", _DEFAULT_CATEGORY))
-        tags        = yt_cfg.get("tags", ["Shorts", "Islamic", "IslamicContent", "islamicshorts"])
+        tags        = yt_cfg.get("tags", ["Shorts", "Entertainment", "Dance", "ViralReels"])
 
         body = {
             "snippet": {
@@ -195,12 +195,12 @@ class YouTubePosterAgent:
         We reserve 8 chars for ' #Shorts' suffix to boost Shorts discoverability.
 
         Examples:
-            'سبحان الله — Glory be to Allah ☁️\\n\\nEvery sunrise...' 
-            → 'سبحان الله — Glory be to Allah ☁️ #Shorts'
+            'Drop a 🔥 if you can do this move!\\n\\nThis transition is EVERYTHING...' 
+            → 'Drop a 🔥 if you can do this move! #Shorts'
         """
         first_line = next(
             (line.strip() for line in caption.splitlines() if line.strip()),
-            "Islamic Content"
+            "Entertainment Reel"
         )
 
         shorts_suffix = f" {_SHORTS_TAG}"

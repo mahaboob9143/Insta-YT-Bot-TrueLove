@@ -1,17 +1,21 @@
 # InstaAgent — Cloud Repost Pipeline
 
-A fully autonomous Instagram repost agent that scrapes public competitor content, rewrites captions using a rule-based engagement engine, and publishes automatically via the official Meta Graph API.
+A fully autonomous Instagram repost agent that reposts entertainment & dance content from public creators, rewrites captions using a rule-based engagement engine, and publishes automatically via the official Meta Graph API.
+
+**Source Account:** [@bulebarbie_official](https://www.instagram.com/bulebarbie_official/)
+**Niche:** Entertainment / Dance / Reel Creator
 
 ## Features
 - **3-Tier Fallback Architecture:** Guaranteed daily posts via a robust fallback system:
-  1. **Auto-Scrape:** Autonomously scrapes public competitor content using `instaloader`.
+  1. **Auto-Scrape:** Autonomously scrapes public creator content using `instaloader`.
   2. **Manual Queue (Google Sheets):** If scraping fails, automatically falls back to a public Google Sheet to fetch specific user-provided URLs.
   3. **Duplicate Safeguard:** If the manual queue is empty, forcefully grabs an older post to maintain daily consistency.
 - **Alternating Pattern Logic:** Strictly enforces an alternating `Image -> Reel -> Image -> Reel` schedule, even when fetching URLs manually from Google Sheets.
-- **Rule-based Captioning:** Categorizes content and weaves engaging hooks/CTAs automatically based on keywords or manual Google Sheet category overrides.
+- **Rule-based Captioning:** Categorizes content (dance/humor/lifestyle/trending/motivation) and weaves engaging English hooks/CTAs automatically.
 - **Auto Image Optimization:** Filters out non-compliant aspect ratios and prepares assets for Instagram.
 - **Cloud-native Uploads:** Uses Cloudinary to host images publicly so the Meta Graph API can pull them.
-- **Deduplication:** Lightweight text-based tracker to ensure content is never reposted twice.
+- **Deduplication:** Excel-based tracker to ensure content is never reposted twice.
+- **YouTube Shorts:** Simultaneously publishes reels to YouTube as Shorts (Entertainment category).
 - **Headless Execution:** Designed to run in CI/CD (GitHub Actions) with randomized cron scheduling.
 
 ## Local Setup

@@ -23,7 +23,7 @@ from core.repost_tracker import is_reposted, get_last_posted_at
 logger = get_logger("SheetsReader")
 
 # The public CSV export URL for the user's Google Sheet
-SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1UG-xzmeIt_0aCTrih4kCWYFY2fUFyPPYxJQE18Ext6w/export?format=csv"
+SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1DHJcZW3q3uCGZr4rn8-mBiLX0FHBrXl5e75Y7S1OOXs/export?format=csv"
 
 
 def _parse_row(row: dict) -> Optional[Dict]:

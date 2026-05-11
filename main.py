@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-InstaAgent — Autonomous Islamic Instagram Content System
-========================================================
+InstaAgent — Autonomous Entertainment Instagram Content System
+=============================================================
 
-A cloud-native multi-agent system for maximizing Instagram engagement 
-for an Islamic cinematic content account via Reposting.
+A cloud-native multi-agent system for maximizing Instagram engagement
+for an entertainment/dance content account via Reposting.
 
 Usage:
-  python main.py --repost           # Scrape @softeningsayings and repost one image
+  python main.py --repost           # Fetch from Google Sheets and repost one image/reel
 
 Environment:
   Requires .env file with META_ACCESS_TOKEN and IG_ACCOUNT_ID.
@@ -47,7 +47,7 @@ def _load_env_or_exit() -> None:
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="instaagent",
-        description="Autonomous Islamic Instagram automation system",
+        description="Autonomous entertainment Instagram automation system",
     )
     parser.add_argument(
         "--dry-run",

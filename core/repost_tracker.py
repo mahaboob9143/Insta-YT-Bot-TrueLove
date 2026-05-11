@@ -14,7 +14,7 @@ Usage:
 
     if not is_reposted("DU3i6qPDTOH"):
         # process and post...
-        mark_reposted("DU3i6qPDTOH", post_type="image", source_url="...", category="sabr")
+        mark_reposted("DU3i6qPDTOH", post_type="image", source_url="...", category="dance")
 """
 
 from datetime import datetime, timezone
@@ -136,7 +136,7 @@ def mark_reposted(
         shortcode:  Instagram shortcode (e.g. 'DU3i6qPDTOH').
         post_type:  'image' or 'reel'.
         source_url: Full Instagram URL (for reference).
-        category:   Caption category used (sabr/shukr/tawakkul/akhirah/dua/general).
+        category:   Caption category used (dance/humor/lifestyle/trending/motivation/general).
     """
     _ensure_workbook()
     import openpyxl

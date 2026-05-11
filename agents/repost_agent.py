@@ -45,7 +45,7 @@ _IG_MAX_RATIO = 1.91   # landscape max
 
 
 class RepostAgent:
-    """Scrapes a public Islamic Instagram account and reposts images with rewritten captions."""
+    """Scrapes a public entertainment/dance Instagram account and reposts content with rewritten captions."""
 
     def __init__(self):
         self.config = get_config()
@@ -68,7 +68,7 @@ class RepostAgent:
             )
             return None
 
-        source_accounts = repost_cfg.get("source_accounts", ["softeningsayings"])
+        source_accounts = repost_cfg.get("source_accounts", ["bulebarbie_official"])
         max_check = int(repost_cfg.get("max_posts_to_check", 20))
         download_dir = repost_cfg.get("download_dir", "media/reposts")
         add_credit = repost_cfg.get("add_credit_line", True)
@@ -262,7 +262,7 @@ class RepostAgent:
                 logger.debug(f"Already reposted {post_id} — skipping")
                 continue
 
-            # Suitability Filter (Jummah/Friday/Ramadan checks)
+            # Suitability Filter
             if not force_duplicate and not self._is_post_suitable(post):
                 continue
 
@@ -303,7 +303,7 @@ class RepostAgent:
         We still use Instaloader to download the actual media file.
 
         If `owner_username` is provided from the sheet, it is used as the
-        credit handle in the caption (e.g. "Via @softeningsayings").
+        credit handle in the caption (e.g. "Via @bulebarbie_official").
         """
         logger.info(f"Processing manual URL: {url} (Category: {category or 'general'})")
 
@@ -352,39 +352,9 @@ class RepostAgent:
 
     def _is_post_suitable(self, post) -> bool:
         """
-        Check if the post is suitable for today based on keywords in the caption.
-        Example: Skip 'Jummah' posts if today is not Friday.
+        Check if the post is suitable to repost.
+        All entertainment content is considered suitable by default.
         """
-        from datetime import datetime
-        caption = (post.caption or "").lower()
-        now = datetime.now()
-        
-        # 1. Friday / Jummah Filter
-        friday_keywords = ["friday", "jummah", "jumuah", "جمعة"]
-        is_friday_content = any(kw in caption for kw in friday_keywords)
-        is_today_friday = now.weekday() == 4  # 4 = Friday
-        
-        if is_friday_content and not is_today_friday:
-            logger.info(f"Skipping post {post.shortcode}: contains Friday/Jummah keywords but today is not Friday.")
-            return False
-        
-        if is_today_friday and not is_friday_content:
-            # Optional: You might want to prioritize Friday content on Friday, 
-            # but currently we just allow everything else too.
-            pass
-
-        # 2. Ramadan Filter
-        ramadan_keywords = ["ramadan", "ramazan", "iftar", "suhoor", "fasting", "رمضان"]
-        is_ramadan_content = any(kw in caption for kw in ramadan_keywords)
-        
-        # Check config for manual Ramadan toggle
-        repost_cfg = self.config.get("repost", {})
-        is_it_ramadan = repost_cfg.get("is_ramadan", False)
-        
-        if is_ramadan_content and not is_it_ramadan:
-            logger.info(f"Skipping post {post.shortcode}: contains Ramadan keywords but 'is_ramadan' is false in config.")
-            return False
-
         return True
 
     # ── Download + prepare ───────────────────────────────────────────────────
@@ -515,9 +485,9 @@ class RepostAgent:
 
         Steps:
           1. Clean (strip hashtags, normalize whitespace)
-          2. Classify via keyword scoring (sabr/shukr/tawakkul/akhirah/dua/general)
-          3. Build [PRE-HOOK] + [HOOK] + [BODY] + [EMOTIONAL LINE] + [HASHTAGS]
-          4. Append credit line if requested
+          2. Classify via keyword scoring (dance/humor/lifestyle/trending/motivation/general)
+          3. Build [PRE-HOOK] + [HOOK] + [BODY] + [HASHTAGS]
+          4. Append credit line if requested (disabled by default)
         """
         # Determine the category that will be used (mirrors caption_engine logic)
         body = clean_caption(original)

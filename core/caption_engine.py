@@ -4,25 +4,22 @@ core/caption_engine.py — Rule-based Instagram Caption Engine.
 Pipeline:
   1. Clean    — strip hashtags, normalize whitespace
   2. Classify — keyword scoring → category
-  3. Build    — [PRE-HOOK CTA] + [HOOK] + [BODY] + [EMOTIONAL LINE] + [HASHTAGS]
+  3. Build    — [PRE-HOOK CTA] + [HOOK] + [BODY] + [HASHTAGS]
 
 Caption structure:
-  Line 1 (PRE-HOOK): Bilingual direct ask — "👇 Comment 'آمين' if this is you"
+  Line 1 (PRE-HOOK): Direct engagement ask — "🔥 Comment if this is you"
                      Visible before "...more" — drives engagement immediately.
   Line 2 blank
   Line 3+ (HOOK): Short, punchy opener (same category)
   blank
   (BODY): Original caption, cleaned
   blank
-  (EMOTIONAL LINE): Quranic/Hadith reference with Arabic
-  blank
   (HASHTAGS): Category-specific
-  (CREDIT): Optional "Via @handle"
 
 One CTA per caption (the pre-hook). No separate CTA at bottom.
 All components drawn from the SAME category — never mixed.
 
-Categories: sabr | shukr | tawakkul | akhirah | dua | general
+Categories: dance | humor | lifestyle | trending | motivation | general
 """
 
 import re
@@ -31,191 +28,151 @@ from typing import Optional
 
 # ── Category keyword banks (lowercase) ────────────────────────────────────────
 _KEYWORDS: dict[str, list[str]] = {
-    "sabr": [
-        "pain", "struggle", "test", "patience", "hardship", "trial",
-        "difficult", "burden", "suffering", "sabr", "bear", "endure",
-        "ease after", "darkness", "wound", "broken", "heartbreak", "hurt",
+    "dance": [
+        "dance", "dancing", "choreography", "moves", "steps", "rhythm",
+        "groove", "performance", "routine", "reel", "dancer", "beat",
+        "transition", "freestyle", "shuffle", "hip hop", "ballet",
     ],
-    "shukr": [
-        "gratitude", "blessing", "rizq", "thankful", "grateful", "alhamdulillah",
-        "bounty", "favour", "mercy", "provision", "gift", "appreciate",
-        "shukr", "contentment", "satisfied",
+    "humor": [
+        "funny", "lol", "lmao", "comedy", "joke", "laugh", "hilarious",
+        "skit", "acting", "prank", "relatable", "mood", "same", "vibes",
+        "cringe", "meme", "haha", "wtf", "omg",
     ],
-    "tawakkul": [
-        "trust", "control", "plan", "rely", "depend", "tawakkul",
-        "allah's plan", "let go", "worry", "outcome", "overthink",
-        "surrender", "put your trust", "in allah we trust", "leave it to allah",
+    "lifestyle": [
+        "lifestyle", "vlog", "day in my life", "get ready", "ootd",
+        "fashion", "aesthetic", "coffee", "morning", "routine", "glow up",
+        "self care", "travel", "food", "outfit", "beauty", "makeup",
     ],
-    "akhirah": [
-        "death", "jannah", "grave", "hereafter", "paradise", "akhirah",
-        "afterlife", "eternal", "day of judgement", "qiyamah", "duniya",
-        "dunya", "temporary", "world is temporary", "accountability",
+    "trending": [
+        "trending", "viral", "challenge", "duet", "trend", "fyp",
+        "foryou", "explore", "hot", "new", "latest", "everyone is doing",
+        "tiktok", "popular", "hit",
     ],
-    "dua": [
-        "pray", "dua", "forgive", "supplication", "ask allah", "make dua",
-        "du'a", "prayer", "supplicate", "raise your hands", "3am", "night prayer",
-        "ameen", "ya allah", "forgiveness", "accepted",
+    "motivation": [
+        "motivation", "inspire", "confidence", "boss", "grind", "hustle",
+        "believe", "mindset", "goals", "success", "transformation",
+        "glow up", "level up", "never give up", "dream big",
     ],
 }
 
 # ── Per-category content pools ─────────────────────────────────────────────────
 
-# PRE-HOOK: The very first line — direct English engagement ask.
+# PRE-HOOK: The very first line — direct engagement ask.
 # Shown before "...more" — drives comments immediately.
-# Keep the comment word simple English so people actually type it.
 _PRE_HOOKS: dict[str, list[str]] = {
-    "sabr": [
-        "Type 'Ameen' if you needed this today",
-        "Write 'Ameen' if you're going through a test right now",
-        "Type 'Ameen' — this is for the ones still holding on",
-        "Write 'Ameen' if Allah is carrying you through something hard",
+    "dance": [
+        "Drop a 🔥 if you can do this move!",
+        "Tag your dance partner 👇 — they NEED to see this!",
+        "Comment 💃 if this made you want to get up and dance!",
+        "Tag someone who dances like this 🙌",
     ],
-    "shukr": [
-        "Type 'Alhamdulillah' if you're grateful today",
-        "Write 'Alhamdulillah' — let's fill the comments with gratitude",
-        "Type 'Alhamdulillah' if Allah has blessed you today",
-        "Write 'Alhamdulillah' if you woke up with more than you deserve",
+    "humor": [
+        "Comment 😂 if this is literally you!",
+        "Tag the friend who would do this 👇😂",
+        "Drop a 💀 if you couldn't stop laughing!",
+        "Tag your funniest friend — they'll relate 😂👇",
     ],
-    "tawakkul": [
-        "Type 'Ameen' if you're trusting Allah's plan today",
-        "Write 'Ameen' if you're learning to let go and trust Allah",
-        "Type 'Ameen' if you needed this reminder right now",
-        "Write 'Ameen' if you're leaving it all to Allah today",
+    "lifestyle": [
+        "Drop a ❤️ if your aesthetic is on point like this!",
+        "Save this for inspo 📌 — you'll thank yourself later!",
+        "Tag someone who lives like this 🔥👇",
+        "Comment ✨ if this is your vibe!",
     ],
-    "akhirah": [
-        "Share this before scrolling — someone needs to see this",
-        "Type 'Ameen' if you're preparing for what truly matters",
-        "Tag someone who needs this reminder today",
-        "Write 'Ameen' — the akhirah is closer than we think",
+    "trending": [
+        "Drop a 🔥 if you've seen this trend!",
+        "Have you tried this yet? Comment below 👇",
+        "Tag a friend who's obsessed with this trend 💥",
+        "Comment YES if you're doing this next 👇🔥",
     ],
-    "dua": [
-        "Type 'Ameen' and make a du'a right now",
-        "Write 'Ameen' — let's all raise our hands together",
-        "Write your du'a below — Allah is always listening",
-        "Type 'Ameen' if you're in need of Allah's mercy today",
+    "motivation": [
+        "Drop a 💪 if this motivated you today!",
+        "Tag someone who needs to hear this 👇",
+        "Comment 🔥 if you're levelling up this year!",
+        "Save this — you'll need this reminder 📌",
     ],
     "general": [
-        "Type 'Ameen' if this speaks to you today",
-        "Write 'SubhanAllah' if this touched your heart",
-        "Type 'Ameen' — share this with someone who needs it",
-        "Write 'SubhanAllah' if you needed this reminder today",
+        "Drop a ❤️ if this made your day!",
+        "Tag someone who needs to see this 👇",
+        "Comment 🔥 if you loved this!",
+        "Share this with someone who'd vibe with it 💥",
     ],
 }
 
 _HOOKS: dict[str, list[str]] = {
-    "sabr": [
-        "سبحان الله — Every hardship is a test from Allah. 🤲",
-        "Allah tests those He loves most — الصبر جميل. 🌙",
-        "Sabr is not silence — it's trusting Allah completely. 🤍",
-        "The pain you feel today is shaping you for tomorrow. ✨",
-        "إن مع العسر يسرا — After hardship comes ease. Always. 🌙",
+    "dance": [
+        "This transition is EVERYTHING ✨",
+        "When the beat drops and you just feel it 🎵🔥",
+        "This choreography is living rent-free in my head 💃",
+        "That's how you own the floor 🕺✨",
+        "The footwork. The timing. PERFECT. 🔥",
     ],
-    "shukr": [
-        "الحمد لله — Alhamdulillah for what you have right now. 🤍",
-        "Count your blessings — they outweigh your burdens. ✨",
-        "Gratitude is the language of the believer — شكر الله. 🌙",
-        "Your rizq is written — trust Allah's provision. 🤲",
-        "الحمد لله على كل حال — Say Alhamdulillah, always. 🤍",
+    "humor": [
+        "We all have that one friend 😂",
+        "This is too real 💀",
+        "I can't stop replaying this 😂🔁",
+        "The accuracy is SCARY 😭😂",
+        "Who approved this energy? Because I need it 😂✨",
     ],
-    "tawakkul": [
-        "توكّل على الله — Let go. Trust Allah's plan. 🌙",
-        "Stop worrying — Allah is already planning for you. 🤍",
-        "You don't control the outcome. Only your effort. ✨",
-        "حسبي الله ونعم الوكيل — Allah is enough. 🤲",
-        "Release the grip. Trust the One who holds everything. 🌙",
+    "lifestyle": [
+        "This is the vibe we're chasing 🌟",
+        "Soft life? Yes please. ✨",
+        "Aesthetic unlocked 🔓💫",
+        "This is what living well looks like ✨",
+        "Goals. That's it. That's the caption. 🎯",
     ],
-    "akhirah": [
-        "الدنيا فانية — This world is temporary. Build for what lasts. 🕌",
-        "Jannah is the goal. This dunya is the test. 🌙",
-        "The grave will come for all of us. Are you ready? 🤍",
-        "كل نفس ذائقة الموت — Every soul shall taste death. ✨",
-        "What are you building for the day it truly matters? 🌙",
+    "trending": [
+        "Everyone's doing this — have you tried it yet? 🔥",
+        "This is taking over the internet for a reason 💥",
+        "The trend that just won't stop ✨",
+        "Why is everyone obsessed with this? 👀",
+        "Viral for a reason. Watch till the end 🔁",
     ],
-    "dua": [
-        "ادعوني أستجب لكم — Make du'a. Allah always listens. 🤲",
-        "Your du'a reaches Allah even at 3am. 🌙",
-        "Never underestimate the power of your supplication. 🤍",
-        "Speak to Allah — He hears every word. ✨",
-        "وإذا سألك عبادي — He is near. Always near. 🤲",
-    ],
-    "general": [
-        "سبحان الله — A reminder every Muslim needs to read. 🤍",
-        "SubhanAllah — let this sink in. 🌙",
-        "Read this twice. Share it once. 🤍",
-        "ما شاء الله — May this reminder reach the heart that needs it. ✨",
-        "This is for the one who needed it today. 🌙",
-    ],
-}
-
-_EMOTIONAL_LINES: dict[str, list[str]] = {
-    "sabr": [
-        "«لَا يُكَلِّفُ اللَّهُ نَفْسًا إِلَّا وُسْعَهَا» — Allah does not burden a soul beyond what it can bear. (2:286)",
-        "«إِنَّ مَعَ الْعُسْرِ يُسْرًا» — Indeed, with every hardship comes ease. (94:6)",
-        "Your sabr is not wasted — Allah sees every tear, every silent prayer.",
-        "The most rewarded in the akhirah are those who were tested the most in this dunya.",
-    ],
-    "shukr": [
-        "«لَئِن شَكَرْتُمْ لَأَزِيدَنَّكُمْ» — If you are grateful, I will surely increase you. (14:7)",
-        "Shukr is not just words — it's a way of living, a way of seeing the world.",
-        "The believer who is grateful is always in a state of increase.",
-        "«وَإِن تَعُدُّوا نِعْمَةَ اللَّهِ لَا تُحْصُوهَا» — You cannot count Allah's blessings. (16:18)",
-    ],
-    "tawakkul": [
-        "«وَمَن يَتَوَكَّلْ عَلَى اللَّهِ فَهُوَ حَسْبُهُ» — Whoever relies upon Allah, He is sufficient. (65:3)",
-        "Tawakkul is doing your best, then leaving the rest to Allah completely.",
-        "Allah's timing is always perfect — even when it doesn't feel like it.",
-        "Trust is not passive. It is the highest form of faith in Allah's plan.",
-    ],
-    "akhirah": [
-        "«كُلُّ نَفْسٍ ذَائِقَةُ الْمَوْتِ» — Every soul shall taste death. (3:185) Prepare while you can.",
-        "What you plant in this dunya, you will harvest in the akhirah.",
-        "The best investment is the one that follows you into your grave — your deeds.",
-        "This life is a bridge — don't build your home on it.",
-    ],
-    "dua": [
-        "«ادْعُونِي أَسْتَجِبْ لَكُمْ» — Call upon Me, I will respond to you. (40:60)",
-        "A believer's most powerful weapon is du'a — never leave it.",
-        "«وَإِذَا سَأَلَكَ عِبَادِي عَنِّي فَإِنِّي قَرِيبٌ» — I am near. (2:186) Always.",
-        "Allah loves those who ask Him persistently and with certainty.",
+    "motivation": [
+        "This is your sign to go after it 💪",
+        "Level up starts NOW 🚀",
+        "The glow up is real and it's yours 🌟",
+        "Your future self will thank you for this 🙌",
+        "Stop waiting. Start doing. 🔥",
     ],
     "general": [
-        "May Allah fill your heart with peace — «السَّلَامُ» is one of His beautiful names.",
-        "«وَمَا أَرْسَلْنَاكَ إِلَّا رَحْمَةً لِّلْعَالَمِينَ» — Islam is a mercy to all of mankind. (21:107)",
-        "Return to Allah — He is always waiting for you, no matter how far you've gone.",
-        "Every moment is a chance to start again. That is the mercy of Allah.",
+        "This content just hits different 🔥",
+        "Watch this twice. You're welcome. 🎬",
+        "The energy in this reel is unmatched ✨",
+        "This is why I never put my phone down 📱🔥",
+        "Best thing you'll see today 💥",
     ],
 }
 
 _HASHTAGS: dict[str, str] = {
-    "sabr": (
-        "#Sabr #Patience #Islam #Muslim #IslamicReminder #Quran #Allah "
-        "#Alhamdulillah #Hardship #Tawakkul #SubhanAllah #IslamicQuotes "
-        "#ImanBooster #IslamicPost #Faith"
+    "dance": (
+        "#DanceReels #DanceChallenge #Choreography #ReelItFeelIt #DancerLife "
+        "#Trending #Entertainment #ViralReels #InstaDance #Shorts "
+        "#ReelCreator #DanceVideo #HipHop #DanceMove #Groove"
     ),
-    "shukr": (
-        "#Shukr #Alhamdulillah #Gratitude #Rizq #Islam #Muslim #Quran "
-        "#Allah #Barakah #IslamicPost #IslamicReminder #Blessing "
-        "#IslamicQuotes #SubhanAllah #Tawakkul"
+    "humor": (
+        "#FunnyReels #Comedy #Relatable #FunnyVideos #Humor "
+        "#Trending #ViralReels #Entertainment #ReelItFeelIt #Shorts "
+        "#Laugh #FunnyMoments #Comedyskits #Memes #FunContent"
     ),
-    "tawakkul": (
-        "#Tawakkul #Trust #AllahsPlan #Islam #Muslim #Quran #Allah "
-        "#SubhanAllah #Iman #IslamicPost #IslamicReminder #IslamicQuotes "
-        "#Faith #Sabr #Deen"
+    "lifestyle": (
+        "#Lifestyle #Aesthetic #OOTD #VibeCheck #DailyLife "
+        "#Trending #ReelItFeelIt #GlowUp #SelfCare #Shorts "
+        "#LifestyleReels #FashionReels #AestheticVibes #Inspo #Goals"
     ),
-    "akhirah": (
-        "#Akhirah #Jannah #Islam #Muslim #Quran #Allah #IslamicReminder "
-        "#Hereafter #Deen #IslamicPost #IslamicQuotes #SubhanAllah "
-        "#Salah #Iman #LastDay"
+    "trending": (
+        "#Trending #ViralReels #FYP #ForYou #Explore "
+        "#Entertainment #Shorts #ReelItFeelIt #ViralVideo #TrendAlert "
+        "#NewTrend #Viral #PopularReels #HotRight Now #ReelCreator"
     ),
-    "dua": (
-        "#Dua #Prayer #Islam #Muslim #Quran #Allah #MakeDua "
-        "#IslamicReminder #IslamicPost #Dhikr #SubhanAllah #Alhamdulillah "
-        "#AllahuAkbar #Ameen #Iman"
+    "motivation": (
+        "#Motivation #Inspiration #GlowUp #LevelUp #BossVibes "
+        "#Mindset #Goals #Hustle #Trending #ViralReels "
+        "#Shorts #ReelItFeelIt #Success #Believe #Confidence"
     ),
     "general": (
-        "#Islam #Islamic #Quran #Allah #Muslim #Hadith #ProphetMuhammad "
-        "#IslamicQuotes #Iman #Tawakkul #Sabr #Dhikr #Jannah #Deen "
-        "#IslamicReminder #IslamicPost #SubhanAllah #AllahuAkbar #Alhamdulillah"
+        "#Entertainment #ReelItFeelIt #ViralReels #Trending #Shorts "
+        "#ReelCreator #FunnyReels #DanceReels #Lifestyle #Explore "
+        "#ForYou #FYP #ViralVideo #ContentCreator #InstagramReels"
     ),
 }
 
@@ -225,7 +182,7 @@ _HASHTAGS: dict[str, str] = {
 def clean_caption(text: str) -> str:
     """
     Remove hashtags and normalize whitespace.
-    Keeps emojis and Arabic text intact — they add authentic personality.
+    Keeps emojis intact — they add authentic personality.
     Returns cleaned body text only.
     """
     text = re.sub(r"#\w+", "", text)
@@ -253,8 +210,8 @@ def classify_caption(text: str) -> str:
 
 def build_caption(
     original: str,
-    add_credit: bool = True,
-    credit_handle: str = "softeningsayings",
+    add_credit: bool = False,
+    credit_handle: str = "bulebarbie_official",
     category_override: Optional[str] = None,
 ) -> str:
     """
@@ -262,17 +219,15 @@ def build_caption(
       1. Clean the original caption (strip hashtags, normalize whitespace)
       2. Classify into a category via keyword scoring
       3. Assemble:
-           [PRE-HOOK CTA]   ← bilingual direct ask, shown before "...more"
+           [PRE-HOOK CTA]   ← direct engagement ask, shown before "...more"
            [HOOK]           ← short punchy opener
            [BODY]           ← cleaned original
-           [EMOTIONAL LINE] ← Quranic/Hadith reference with Arabic
            [HASHTAGS]       ← category-specific
-           [CREDIT]         ← optional
       4. All components come from the SAME category — never mixed.
       5. One CTA only (the pre-hook). No repeat at the bottom.
     """
     body = clean_caption(original)
-    
+
     if category_override and category_override in _KEYWORDS:
         category = category_override
     else:
@@ -280,22 +235,19 @@ def build_caption(
 
     pre_hook = random.choice(_PRE_HOOKS[category])
     hook = random.choice(_HOOKS[category])
-    emotional = random.choice(_EMOTIONAL_LINES[category])
     hashtags = _HASHTAGS[category]
 
     parts = [
-        pre_hook,    # "👇 Comment 'آمين' if..."
+        pre_hook,    # "🔥 Comment if you can do this move!"
         "",
-        hook,        # "Every hardship is a test from Allah."
+        hook,        # "This transition is EVERYTHING ✨"
         "",
         body,        # original caption (cleaned)
-        "",
-        emotional,   # Quranic reference + Arabic
         "",
         hashtags,
     ]
 
     if add_credit:
-        parts += ["", f"Via @{credit_handle} \U0001f90d"]
+        parts += ["", f"Via @{credit_handle} 🎬"]
 
     return "\n".join(parts)

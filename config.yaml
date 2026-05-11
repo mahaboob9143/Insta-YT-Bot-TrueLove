@@ -9,7 +9,7 @@ image_server:
 # ── Facebook Page ──────────────────────────────────────────────
 facebook:
   enabled: false                # Paused — YouTube posting is now active
-  page_name: "Food.timeez"      # For reference only — not used in code
+  page_name: "Entertainment"    # For reference only — not used in code
 
 # ── YouTube Channel ──────────────────────────────────────────
 youtube:
@@ -17,62 +17,61 @@ youtube:
   # Video will be published as a YouTube Short (portrait, ≤ 3 min)
   # Shorts are auto-detected by YouTube based on orientation + duration.
   # Adding #Shorts to the title (done automatically) boosts discovery.
-  category_id: 22               # 22 = People & Blogs (best fit for Islamic content)
+  category_id: 24               # 24 = Entertainment
   tags:                         # Tags applied to every uploaded Short
     - Shorts
-    - Islamic
-    - IslamicContent
-    - islamicshorts
-    - quran
-    - deen
+    - Entertainment
+    - DanceReels
+    - ReelCreator
+    - Trending
+    - Dance
+    - ViralReels
+    - Funny
+    - ReelItFeelIt
 
 # ── Repost Agent ──────────────────────────────────────────────
-# Scrapes images from public Islamic accounts and reposts them
+# Scrapes/reposts entertainment & dance reels from public accounts
 # with a rewritten caption. Triggered by GitHub Actions via: main.py --repost
 repost:
   enabled: true
   auto_scrape_enabled: false      # Set true to scrape autonomously; false to rely solely on Google Sheets
   source_accounts:
-    - softeningsayings            # Public IG accounts to scrape images from
+    - bulebarbie_official          # Public IG accounts to scrape content from
   max_posts_to_check: 12          # How many recent posts to scan per run (keep low to avoid rate limits)
-  include_reels: true            # Set true to also scrape & repost Reels (videos)
+  include_reels: true             # Set true to also scrape & repost Reels (videos)
   download_dir: media/reposts     # Local download directory (cleaned up automatically)
-  is_ramadan: false               # Set true during Ramadan to allow Ramadan content
   post_to_story: true             # Also post the media to your Instagram Story
-  collaborators: []              # (Optional) List of usernames to invite as collaborators
-  add_credit_line: true           # Append "Via @softeningsayings 🤍" to caption
+  collaborators: []               # (Optional) List of usernames to invite as collaborators
+  add_credit_line: false          # No credit line
 
 # ── Caption Generation ────────────────────────────────────────
 caption:
-  language: en_ar              # bilingual: English + Arabic
+  language: en                 # English only
   max_hashtags: 25
 
   # Fallback templates used by the rule-based engine
   fallback_templates:
     - |
-      سبحان الله — Glory be to Allah ☁️
+      Drop a 🔥 if this made your day!
 
-      Every sunrise is a reminder of His mercy.
-      Take a moment to reflect and be grateful.
+      When the vibe is just right and you can't stop watching 🎬
 
-      Save this as a reminder 📌
-
-      {hashtags}
-    - |
-      الحمد لله — All praise belongs to Allah 🤍
-
-      In every challenge, there is a hidden blessing.
-      Trust in Allah's plan — He knows what we do not.
-
-      Share with someone who needs this today 🤍
+      Save this for your next mood boost 💥
 
       {hashtags}
     - |
-      اللَّهُ أَكْبَر — Allah is the Greatest ✨
+      Tag someone who needs to see this 👇
 
-      No matter what life brings, return to Him.
-      He is the Most Merciful, the Most Compassionate.
+      This is the kind of energy we're here for — pure entertainment ✨
 
-      Tag a brother or sister ☁️
+      Follow for more reels like this! 🎉
+
+      {hashtags}
+    - |
+      Comment ❤️ if you loved this!
+
+      Some content just hits different — and this is it 🔥
+
+      Share this with your funniest friend 😂
 
       {hashtags}
