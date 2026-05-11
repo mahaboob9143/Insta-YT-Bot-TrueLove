@@ -24,6 +24,7 @@ from core.retry import retry
 from core.cloudinary_uploader import upload_image, delete_image
 from core.story_designer import create_story_image
 from agents.facebook_poster_agent import FacebookPosterAgent
+from agents.youtube_poster_agent import YouTubePosterAgent
 
 logger = get_logger("PosterAgent")
 
@@ -90,7 +91,23 @@ class PosterAgent:
                 else:
                     logger.warning("Facebook enabled in config but FB secrets not set.")
 
-            # 3. Post to Story (if enabled — images only)
+            # 3. Post to YouTube as a Short (videos/reels only — images are skipped)
+            #    Uses the same local file already downloaded for Instagram.
+            #    Must run BEFORE the finally-block cleans up local_path.
+            if is_reel and config.get("youtube", {}).get("enabled", False):
+                yt_agent = YouTubePosterAgent()
+                if yt_agent.is_configured():
+                    logger.info("YouTube enabled — uploading as Short...")
+                    yt_agent.post(video_path=local_path, caption=caption)
+                else:
+                    logger.warning(
+                        "YouTube enabled in config but YT credentials not set. "
+                        "Add YT_CLIENT_ID, YT_CLIENT_SECRET, YT_REFRESH_TOKEN to .env"
+                    )
+            elif not is_reel and config.get("youtube", {}).get("enabled", False):
+                logger.info("YouTube: skipping image post — Shorts require video.")
+
+            # 4. Post to Story (if enabled — images only)
             if ig_post_id and not is_reel and config.get("repost", {}).get("post_to_story", False):
                 logger.info("Story mode enabled — sharing to Instagram Story...")
                 self._publish_story(local_path=local_path)
