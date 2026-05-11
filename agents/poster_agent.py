@@ -84,26 +84,34 @@ class PosterAgent:
             # 2. Post to Facebook Page (same content, second platform)
             config = get_config()
             if config.get("facebook", {}).get("enabled", False):
-                fb_agent = FacebookPosterAgent()
-                if fb_agent.is_configured():
-                    image["cloudinary_url"] = image_url   # pass URL before cleanup
-                    fb_agent.post(image=image, caption=caption, is_reel=is_reel)
-                else:
-                    logger.warning("Facebook enabled in config but FB secrets not set.")
+                try:
+                    fb_agent = FacebookPosterAgent()
+                    if fb_agent.is_configured():
+                        image["cloudinary_url"] = image_url   # pass URL before cleanup
+                        fb_agent.post(image=image, caption=caption, is_reel=is_reel)
+                    else:
+                        logger.warning("Facebook enabled in config but FB secrets not set.")
+                except Exception as fb_exc:
+                    # Facebook failure must NEVER block Instagram success being returned
+                    logger.error(f"Facebook post failed (Instagram was OK): {fb_exc}", exc_info=True)
 
             # 3. Post to YouTube as a Short (videos/reels only — images are skipped)
             #    Uses the same local file already downloaded for Instagram.
             #    Must run BEFORE the finally-block cleans up local_path.
             if is_reel and config.get("youtube", {}).get("enabled", False):
-                yt_agent = YouTubePosterAgent()
-                if yt_agent.is_configured():
-                    logger.info("YouTube enabled — uploading as Short...")
-                    yt_agent.post(video_path=local_path, caption=caption)
-                else:
-                    logger.warning(
-                        "YouTube enabled in config but YT credentials not set. "
-                        "Add YT_CLIENT_ID, YT_CLIENT_SECRET, YT_REFRESH_TOKEN to .env"
-                    )
+                try:
+                    yt_agent = YouTubePosterAgent()
+                    if yt_agent.is_configured():
+                        logger.info("YouTube enabled — uploading as Short...")
+                        yt_agent.post(video_path=local_path, caption=caption)
+                    else:
+                        logger.warning(
+                            "YouTube enabled in config but YT credentials not set. "
+                            "Add YT_CLIENT_ID, YT_CLIENT_SECRET, YT_REFRESH_TOKEN to .env"
+                        )
+                except Exception as yt_exc:
+                    # YouTube failure must NEVER block Instagram success being returned
+                    logger.error(f"YouTube post failed (Instagram was OK): {yt_exc}", exc_info=True)
             elif not is_reel and config.get("youtube", {}).get("enabled", False):
                 logger.info("YouTube: skipping image post — Shorts require video.")
 
