@@ -3,12 +3,12 @@ agents/orchestrator.py — Orchestrator for InstaAgent Repost Pipeline.
 
 Content source: Google Sheets only (Instagram scraping is disabled).
 
-Posting pattern: reel → image → reel → image → ...
-Enforced regardless of URL order in the sheet.
+Posting order: sequential — takes whatever row is next in the sheet.
+No alternating image/reel pattern enforced.
 
 3-tier priority:
   P1: skipped (auto_scrape_enabled: false — Instagram is blocking)
-  P2: Google Sheets — unposted URL matching the target type
+  P2: Google Sheets — next unposted URL from the sheet
   P3: Google Sheets safeguard — ANY sheet URL (force_any=True), even if
       already posted, to maintain the daily posting streak.
 
@@ -22,7 +22,6 @@ from agents.poster_agent import PosterAgent
 from agents.repost_agent import RepostAgent
 from core.sheets_reader import get_pending_row
 from core.logger import get_logger
-from core.post_state import get_next_post_type, save_post_type
 from core.repost_tracker import mark_reposted
 
 logger = get_logger("Orchestrator")
@@ -46,16 +45,12 @@ class Orchestrator:
         Repost mode (--repost).
 
         Pulls content from Google Sheets (no Instagram scraping).
-        Enforces a strict reel → image alternating pattern.
+        Posts the next available row from the sheet — no type filtering.
         Records the post in the dedup tracker only after a confirmed publish.
         """
         logger.info("=" * 60)
         logger.info("  REPOST NOW — Google Sheets → Instagram pipeline")
         logger.info("=" * 60)
-
-        # What type should we post this run?
-        next_type = get_next_post_type()
-        logger.info(f"Pattern target: {next_type.upper()} this run.")
 
         result      = None
         source_url  = None
@@ -66,7 +61,7 @@ class Orchestrator:
 
         # ── Priority 2: Google Sheets — unposted URL ──────────────────────────
         logger.info("[Priority 2] Checking Google Sheets for an unposted URL...")
-        row = get_pending_row(preferred_type=next_type, force_any=False)
+        row = get_pending_row(force_any=False)
 
         if row:
             source_url = row["url"]
@@ -84,7 +79,7 @@ class Orchestrator:
                 "[Priority 2 Failed] No unposted URLs found. "
                 "Activating safeguard — will re-use a URL from the sheet."
             )
-            row = get_pending_row(preferred_type=next_type, force_any=True)
+            row = get_pending_row(force_any=True)
 
             if row:
                 source_url   = row["url"]
@@ -144,8 +139,5 @@ class Orchestrator:
             source_url = source_url or "",
             category   = category,
         )
-        save_post_type(actual_type)
 
-        next_target = "reel" if actual_type == "image" else "image"
         logger.info(f"Repost complete. IG post ID: {ig_post_id}")
-        logger.info(f"[Pattern] Next run will target: {next_target.upper()}")

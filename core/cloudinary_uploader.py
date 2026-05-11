@@ -28,7 +28,7 @@ def _configured() -> bool:
     ])
 
 
-def upload_image(local_path: str, folder: str = "instaagent/reposts") -> tuple[Optional[str], Optional[str]]:
+def upload_image(local_path: str, folder: str = "entertainment/reposts") -> tuple[Optional[str], Optional[str]]:
     """
     Upload a local image file to Cloudinary.
 

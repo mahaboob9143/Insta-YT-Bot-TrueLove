@@ -35,7 +35,6 @@ from core.repost_tracker import is_reposted as is_post_reposted, mark_reposted a
 from core.flags import get_config
 from core.logger import get_logger
 from core.caption_engine import build_caption, classify_caption, clean_caption
-from core.post_state import get_next_post_type, save_post_type
 
 logger = get_logger("RepostAgent")
 
@@ -74,10 +73,6 @@ class RepostAgent:
         add_credit = repost_cfg.get("add_credit_line", True)
         include_reels = repost_cfg.get("include_reels", False)
 
-        # ── Alternating Pattern ───────────────────────────────────────────────
-        next_type = get_next_post_type() if include_reels else "image"
-        logger.info(f"Pattern mode: this run will post a {next_type.upper()}.")
-
         os.makedirs(download_dir, exist_ok=True)
 
         for username in source_accounts:
@@ -87,13 +82,10 @@ class RepostAgent:
                 download_dir=download_dir,
                 add_credit=add_credit,
                 include_reels=include_reels,
-                preferred_type=next_type,
+                preferred_type="any",
                 force_duplicate=force_duplicate,
             )
             if result:
-                # Save which type was just posted for the next run
-                posted_type = "reel" if result.get("is_reel") else "image"
-                save_post_type(posted_type)
                 return result
 
         logger.warning("No new unseen posts found across all source accounts.")
