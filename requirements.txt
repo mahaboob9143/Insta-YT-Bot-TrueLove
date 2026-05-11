@@ -1,5 +1,11 @@
 # InstaAgent — Python 3.11+ dependencies for Repost Pipeline
 
+# YouTube Data API v3 (OAuth2 upload)
+google-api-python-client>=2.100.0
+google-auth>=2.23.0
+google-auth-oauthlib>=1.1.0
+google-auth-httplib2>=0.1.1
+
 # Image processing validation
 Pillow>=10.4.0
 

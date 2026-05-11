@@ -8,8 +8,23 @@ image_server:
 
 # ── Facebook Page ──────────────────────────────────────────────
 facebook:
-  enabled: false                 # Set false to stop posting to Facebook
-  page_name: "Self Explore"     # For reference only — not used in code
+  enabled: false                # Paused — YouTube posting is now active
+  page_name: "Food.timeez"      # For reference only — not used in code
+
+# ── YouTube Channel ──────────────────────────────────────────
+youtube:
+  enabled: true                 # Set false to stop posting to YouTube
+  # Video will be published as a YouTube Short (portrait, ≤ 3 min)
+  # Shorts are auto-detected by YouTube based on orientation + duration.
+  # Adding #Shorts to the title (done automatically) boosts discovery.
+  category_id: 22               # 22 = People & Blogs (best fit for Islamic content)
+  tags:                         # Tags applied to every uploaded Short
+    - Shorts
+    - Islamic
+    - IslamicContent
+    - islamicshorts
+    - quran
+    - deen
 
 # ── Repost Agent ──────────────────────────────────────────────
 # Scrapes images from public Islamic accounts and reposts them

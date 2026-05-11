@@ -2,9 +2,9 @@ name: Repost Pipeline
 
 on:
   schedule:
-    # 0:30 AM UTC = 6:00 AM IST
-    # 12:30 PM UTC = 6:00 PM IST
-    - cron: '30 0,12 * * *'
+    # 23:24 UTC = 4:54 AM IST  (was 0:30 UTC = 6:00 AM IST)
+    # 11:24 UTC = 4:54 PM IST  (was 12:30 UTC = 6:00 PM IST)
+    - cron: '24 23,11 * * *'
   workflow_dispatch:  # Allows manual triggering from GitHub UI (any branch)
 
 jobs:
@@ -35,6 +35,10 @@ jobs:
           CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
           FB_PAGE_ACCESS_TOKEN: ${{ secrets.FB_PAGE_ACCESS_TOKEN }}
           FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
+          # ── YouTube ─────────────────────────────────────────────────────────
+          YT_CLIENT_ID: ${{ secrets.YT_CLIENT_ID }}
+          YT_CLIENT_SECRET: ${{ secrets.YT_CLIENT_SECRET }}
+          YT_REFRESH_TOKEN: ${{ secrets.YT_REFRESH_TOKEN }}
         run: |
           # Add a random delay below 10 seconds
           delay=$((RANDOM % 10))
